@@ -1,0 +1,308 @@
+import os
+import shutil
+
+from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+
+import data
+
+from rich.traceback import install
+install(show_locals=True)
+
+app = FastAPI()
+
+upload_dir = "users_images"
+os.makedirs(upload_dir, exist_ok=True)
+
+app.add_middleware(SessionMiddleware, secret_key="KioPlKioPlKioPlkiopl")
+templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/users_images", StaticFiles(directory=upload_dir), name="users_image")
+
+data.create_tables()
+data.create_tables_messenger()
+
+
+def current_user(request: Request):
+    return request.session.get("user")
+
+
+@app.get("/", response_class=HTMLResponse)
+def read_form(request: Request):
+    if current_user(request):
+        return RedirectResponse(url="/success", status_code=303)
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/register", response_class=HTMLResponse)
+def register_page(request: Request, error: str = None):
+    if current_user(request):
+        return RedirectResponse(url="/success", status_code=303)
+    return templates.TemplateResponse("registr.html", {"request": request, "error": error})
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, error: str = None):
+    if current_user(request):
+        return RedirectResponse(url="/success", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request, "error": error})
+
+
+@app.post("/add_user")
+def create_user(request: Request, name: str = Form(...), password: str = Form(...)):
+    if not name.strip() or not password.strip():
+        return RedirectResponse(url="/register?error=Имя или пароль не может быть пустым", status_code=303)
+    if current_user(request):
+        return RedirectResponse(url="/success", status_code=303)
+
+    if data.check_users(name):
+        return RedirectResponse(url="/register?error=Пользователь уже существует", status_code=303)
+
+    data.add_user(name, password)
+    request.session["user"] = name
+    return RedirectResponse("/success", status_code=303)
+
+
+@app.post("/logins")
+def login(request: Request, name: str = Form(...), password: str = Form(...)):
+    if data.check(name, password):
+        request.session["user"] = name
+        return RedirectResponse(url="/success", status_code=303)
+    return RedirectResponse(url="/login?error=Неверное имя или пароль", status_code=303)
+
+
+@app.get("/success", response_class=HTMLResponse)
+def page(request: Request):
+    user = current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    user_folder = os.path.join(upload_dir, user.strip())
+    photos = []
+    if os.path.exists(user_folder):
+        photos = [f"/users_images/{user}/{f}" for f in os.listdir(user_folder) if f != "avatar"]
+
+    avatar = data.get_user_avatar(user)
+
+    return templates.TemplateResponse(
+        "mypage.html",
+        {
+            "request": request,
+            "user": user,
+            "photos": photos,
+            "avatar": avatar,
+        },
+    )
+
+
+@app.post("/upload_avatar")
+def upload_avatar(request: Request, file: UploadFile = File(...)):
+    user = current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    if not file.filename:
+        return RedirectResponse(url="/success", status_code=303)
+
+    types = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/gif": "gif",
+        "image/webp": "webp",
+    }
+    if file.content_type not in types:
+        return RedirectResponse(url="/success", status_code=303)
+
+    user_folder = os.path.join(upload_dir, user)
+    os.makedirs(user_folder, exist_ok=True)
+
+    for old in os.listdir(user_folder):
+        if old.startswith("avatar."):
+            try:
+                os.remove(os.path.join(user_folder, old))
+            except OSError:
+                pass
+
+    ext = types[file.content_type]
+    file_name = f"avatar.{ext}"
+    file_path = os.path.join(user_folder, file_name)
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    avatar_url = f"/users_images/{user}/{file_name}"
+    data.set_user_avatar(user, avatar_url)
+    return RedirectResponse(url="/success", status_code=303)
+
+
+@app.post("/upload_photo")
+def upload(request: Request, file: UploadFile = File(...)):
+    user = current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    if not file.filename:
+        return RedirectResponse(url="/success", status_code=303)
+
+    types = ["image/jpeg", "image/png", "image/gif", "image/jpg", "image/webp"]
+    if file.content_type not in types:
+        return RedirectResponse(url="/success", status_code=303)
+
+    user_folder = os.path.join(upload_dir, user)
+    os.makedirs(user_folder, exist_ok=True)
+
+    safe_file = os.path.basename(file.filename)
+    file_path = os.path.join(user_folder, safe_file)
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    data.add_photo(user, file_path)
+    return RedirectResponse(url="/success", status_code=303)
+
+
+@app.post("/delete_photo")
+def delete(request: Request, photo: str = Form(...)):
+    user = current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    target_file = os.path.normpath(photo.lstrip("/"))
+    user_folder = os.path.normpath(os.path.join(upload_dir, user))
+    if not target_file.startswith(user_folder + os.sep):
+        return RedirectResponse(url="/success", status_code=303)
+
+    data.delete_photo(target_file)
+    if os.path.exists(target_file):
+        os.remove(target_file)
+    return RedirectResponse(url="/success", status_code=303)
+
+
+@app.get("/logout")
+def logout(request: Request):
+    request.session.pop("user", None)
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.get("/message", response_class=HTMLResponse)
+def messages_page(request: Request, recipient: str = "", reci: str = ""):
+    me = current_user(request)
+    if not me:
+        return RedirectResponse(url="/", status_code=303)
+
+    recipient = (recipient or reci or "").strip()
+
+    history = []
+    if recipient:
+        rows = data.get_chat_history(me, recipient)
+        history = [
+            {
+                "id": row[0],
+                "sender": row[1],
+                "text": row[2],
+                "timestamp": row[3],
+                "avatar": data.get_user_avatar(row[1]),
+            }
+            for row in rows
+        ]
+
+    dialogs = [
+        {
+            "name": d,
+            "avatar": data.get_user_avatar(d),
+        }
+        for d in data.get_dialog(me)
+    ]
+
+    return templates.TemplateResponse(
+        "message.html",
+        {
+            "request": request,
+            "user": me,
+            "recipient": recipient,
+            "history": history,
+            "dialogs": dialogs,
+            "my_avatar": data.get_user_avatar(me),
+            "recipient_avatar": data.get_user_avatar(recipient) if recipient else None,
+        },
+    )
+
+
+@app.post("/start_chat")
+def start_chat(request: Request, contact_name: str = Form(...)):
+    me = current_user(request)
+    if not me:
+        return RedirectResponse(url="/login", status_code=303)
+
+    contact_name = contact_name.strip()
+    if not contact_name:
+        return HTMLResponse(content="Введите имя пользователя!", status_code=400)
+
+    if contact_name == me:
+        return HTMLResponse(content="Нельзя создать чат с самим собой!", status_code=400)
+
+    if data.check_users(contact_name):
+        data.create_chats(me, contact_name)
+        return RedirectResponse(url=f"/message?recipient={contact_name}", status_code=303)
+
+    return HTMLResponse(content=f"Пользователь {contact_name} не найден", status_code=404)
+
+
+@app.post("/send_message")
+def send_msg(request: Request, text: str = Form(...), recipient: str = Form(...)):
+    me = current_user(request)
+    if not me:
+        return RedirectResponse(url="/login", status_code=303)
+
+    recipient_clean = recipient.strip()
+    text_clean = text.strip()
+
+    if not recipient_clean or recipient_clean == "Выберите собеседника":
+        return RedirectResponse(url="/message", status_code=303)
+    if not text_clean:
+        return RedirectResponse(url=f"/message?recipient={recipient_clean}", status_code=303)
+
+    data.send_private_message(me, recipient_clean, text_clean)
+    data.create_chats(me, recipient_clean)
+    return RedirectResponse(url=f"/message?recipient={recipient_clean}", status_code=303)
+
+
+@app.post("/edit_message")
+def edit_message(request: Request, message_id: int = Form(...), new_text: str = Form(...), recipient: str = Form(...)):
+    me = current_user(request)
+    if not me:
+        return RedirectResponse(url="/login", status_code=303)
+
+    new_text = new_text.strip()
+    if not new_text:
+        return RedirectResponse(url=f"/message?recipient={recipient}", status_code=303)
+
+    data.edit_message(message_id, me, new_text)
+    return RedirectResponse(url=f"/message?recipient={recipient}", status_code=303)
+
+
+@app.post("/delete_chat")
+def delete_chat(request: Request, recipient: str = Form(...)):
+    me = current_user(request)
+    if not me:
+        return RedirectResponse(url="/login", status_code=303)
+
+    contact = recipient.strip()
+    if not data.chat_exists(me, contact):
+        return RedirectResponse(url="/message", status_code=303)
+
+    data.delete_dialog(me, contact)
+    return RedirectResponse(url="/message", status_code=303)
+
+
+@app.post("/delete_message")
+def delete_message(request: Request, message_id: int = Form(...), recipient: str = Form(...)):
+    me = current_user(request)
+    if not me:
+        return RedirectResponse(url="/login", status_code=303)
+
+    data.delete_message(message_id, me)
+    return RedirectResponse(url=f"/message?recipient={recipient}", status_code=303)

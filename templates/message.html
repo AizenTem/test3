@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Чат</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="page">
+    <div class="top-bar">
+        <a href="/success" class="btn-back">← Назад</a>
+        <form action="/start_chat" method="post" class="start-chat-form">
+            <input type="text" name="contact_name" placeholder="Найти пользователя..." required>
+            <button type="submit">Начать чат</button>
+        </form>
+    </div>
+
+    <div class="chat-wrapper">
+        <aside class="sidebar">
+            <h3 style="color: #64748b; font-size: 0.8rem; margin-bottom: 15px;">Диалоги</h3>
+            {% if dialogs %}
+                {% for d in dialogs %}
+                    <a href="/message?recipient={{ d.name }}" class="contact-item {% if recipient == d.name %}active{% endif %}">
+                        <div class="mini-avatar">
+                            {% if d.avatar %}
+                                <img src="{{ d.avatar }}" alt="">
+                            {% else %}
+                                {{ d.name[0] }}
+                            {% endif %}
+                        </div>
+                        <span>{{ d.name }}</span>
+                    </a>
+                {% endfor %}
+            {% else %}
+                <div style="color: #94a3b8;">У вас пока нет активных диалогов</div>
+            {% endif %}
+        </aside>
+
+        <main class="chat-area">
+            <header class="chat-header">
+                {% if recipient %}
+                    <div class="chat-title">
+                        <div class="header-avatar">
+                            {% if recipient_avatar %}
+                                <img src="{{ recipient_avatar }}" alt="">
+                            {% else %}
+                                {{ recipient[0] }}
+                            {% endif %}
+                        </div>
+                        <div>Чат с <strong>{{ recipient }}</strong></div>
+                    </div>
+                    <form action="/delete_chat" method="post" style="margin: 0;">
+                        <input type="hidden" name="recipient" value="{{ recipient }}">
+                        <button type="submit" class="btn-delete" onclick="return confirm('Удалить всю историю переписки?')">
+                            Удалить чат
+                        </button>
+                    </form>
+                {% else %}
+                    <div style="color: #94a3b8;">Выберите собеседника</div>
+                {% endif %}
+            </header>
+
+            <div class="chat-messages" id="chat-box">
+                {% for msg in history %}
+                    <div class="msg {% if msg.sender == user %}sent{% else %}received{% endif %}">
+                        <div class="msg-avatar">
+                            {% if msg.avatar %}
+                                <img src="{{ msg.avatar }}" alt="">
+                            {% else %}
+                                {{ msg.sender[0] }}
+                            {% endif %}
+                        </div>
+
+                        <div class="msg-body">
+                            <div class="msg-content">
+                                <span class="text">{{ msg.text }}</span>
+                                <div class="msg-dropdown">
+                                    <button class="msg-menu-btn" onclick="toggleMenu(this)">⋮</button>
+                                    <div class="msg-dropdown-content">
+                                        {% if recipient and msg.sender == user %}
+                                            <a href="#" class="edit-msg-btn"
+                                               data-id="{{ msg.id }}"
+                                               data-text="{{ msg.text }}"
+                                               data-recipient="{{ recipient }}">Изменить</a>
+                                        {% endif %}
+                                        <form action="/delete_message" method="post" style="margin: 0;">
+                                            <input type="hidden" name="message_id" value="{{ msg.id }}">
+                                            <input type="hidden" name="recipient" value="{{ recipient }}">
+                                            <button type="submit" onclick="return confirm('Удалить сообщение?')">Удалить</button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="time">{{ msg.timestamp }}</div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+
+            {% if recipient %}
+            <form action="/send_message" method="post" class="input-area">
+                <input type="hidden" name="recipient" value="{{ recipient }}">
+                <input type="text" name="text" placeholder="Ваше сообщение..." required autocomplete="off">
+                <button type="submit">Отправить</button>
+            </form>
+            {% endif %}
+        </main>
+    </div>
+</div>
+
+<script>
+    const box = document.getElementById('chat-box');
+    if (box) box.scrollTop = box.scrollHeight;
+
+    function toggleMenu(btn) {
+        const menu = btn.nextElementSibling;
+        document.querySelectorAll('.msg-dropdown-content').forEach(m => {
+            if (m !== menu) m.classList.remove('show');
+        });
+        menu.classList.toggle('show');
+    }
+
+    window.onclick = function(e) {
+        if (!e.target.matches('.msg-menu-btn')) {
+            document.querySelectorAll('.msg-dropdown-content').forEach(m => m.classList.remove('show'));
+        }
+    };
+
+    document.addEventListener('click', async function(e) {
+        const editBtn = e.target.closest('.edit-msg-btn');
+        if (!editBtn) return;
+
+        e.preventDefault();
+        document.querySelectorAll('.msg-dropdown-content').forEach(m => m.classList.remove('show'));
+
+        const id = editBtn.dataset.id;
+        const oldText = editBtn.dataset.text;
+        const recipient = editBtn.dataset.recipient;
+
+        let newText = prompt('Редактировать сообщение:', oldText);
+        if (newText === null) return;
+
+        newText = newText.trim();
+        if (newText === '' || newText === oldText) return;
+
+        const formData = new URLSearchParams();
+        formData.append('message_id', id);
+        formData.append('new_text', newText);
+        formData.append('recipient', recipient);
+
+        const res = await fetch('/edit_message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: formData
+        });
+
+        if (res.ok) {
+            window.location.href = `/message?recipient=${recipient}`;
+        } else {
+            alert('Не удалось изменить сообщение');
+        }
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Профиль</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="page">
+    <div class="top">
+        <div class="avatar">
+            {% if avatar %}
+                <img src="{{ avatar }}" alt="Аватар">
+            {% else %}
+                {{ user[0] }}
+            {% endif %}
+        </div>
+        <div>
+            <h1 style="margin:0 0 8px 0;">Привет, {{ user }}!</h1>
+            <div class="actions">
+                <a href="/logout" class="btn danger">Выйти</a>
+                <a href="/message" class="btn">Перейти в чат</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 style="margin-top:0;">Загрузить аватар</h3>
+        <form action="/upload_avatar" method="post" enctype="multipart/form-data">
+            <input type="file" name="file" accept="image/*" required>
+            <div style="margin-top:10px;">
+                <button type="submit">Сохранить аватар</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3 style="margin-top:0;">Загрузить фото</h3>
+        <form action="/upload_photo" method="post" enctype="multipart/form-data">
+            <input type="file" name="file" accept="image/*" required>
+            <div style="margin-top:10px;">
+                <button type="submit">Загрузить фото</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3 style="margin-top:0;">Твои фотографии</h3>
+        <div class="gallery">
+            {% if photos %}
+                {% for photo in photos %}
+                    <div class="photo">
+                        <img src="{{ photo }}" alt="Фото пользователя">
+                        <form action="/delete_photo" method="post">
+                            <input type="hidden" name="photo" value="{{ photo }}">
+                            <button type="submit" class="danger">Удалить</button>
+                        </form>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <p>У тебя пока нет загруженных фото.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+</body>
+</html>
