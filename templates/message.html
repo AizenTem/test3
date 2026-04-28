@@ -116,45 +116,99 @@
 
 <script>
 (function() {
-    let ws = null;
-    let currentRecipient = "{{ recipient }}";
-    let currentUser = "{{ user }}";
-    let reconnectAttempts = 0;
-    let messageElements = new Map(); // id сообщения -> DOM элемент
+    let longPollingActive = true;
+    let sending = false;
 
-    // Функции для работы с DOM
     function scrollDown() {
-        const box = document.getElementById("chat-box");
+        var box = document.getElementById("chat-box");
         if (box) box.scrollTop = box.scrollHeight;
     }
 
     function escapeHtml(text) {
-        const div = document.createElement("div");
+        var div = document.createElement("div");
         div.appendChild(document.createTextNode(text));
         return div.innerHTML;
     }
 
-    // Создание элемента сообщения
-    function createMessageElement(msg, isOwn) {
-        const div = document.createElement("div");
-        div.className = `msg ${isOwn ? 'sent' : 'received'}`;
+    async function longPolling() {
+        if (!longPollingActive) return;
+        
+        var box = document.getElementById("chat-box");
+        var recipientEl = document.getElementById("recipient");
+        
+        if (!box || !recipientEl || !recipientEl.value) {
+            setTimeout(longPolling, 1000);
+            return;
+        }
+        
+        var lastId = parseInt(box.getAttribute("data-last-id")) || 0;
+        var recipient = recipientEl.value;
+        
+        try {
+            var res = await fetch("/wait_new_messages?recipient=" + encodeURIComponent(recipient) + "&after_id=" + lastId);
+            
+            if (!res.ok) {
+                setTimeout(longPolling, 3000);
+                return;
+            }
+            
+            var newMsgs = await res.json();
+            
+            if (newMsgs && newMsgs.length) {
+                newMsgs.forEach(function(msg) {
+                    addMessageToChat(msg, recipient);
+                });
+                
+                // Обновляем last-id
+                var maxId = Math.max(...newMsgs.map(m => m.id));
+                if (maxId > lastId) {
+                    box.setAttribute("data-last-id", maxId);
+                }
+                
+                scrollDown();
+            }
+            
+            // Продолжаем long polling
+            longPolling();
+            
+        } catch (e) {
+            console.error("Long polling error:", e);
+            setTimeout(longPolling, 3000);
+        }
+    }
+    
+    function addMessageToChat(msg, recipient) {
+        var box = document.getElementById("chat-box");
+        if (!box) return;
+        
+        // Проверяем, нет ли уже такого сообщения
+        if (box.querySelector(`.msg[data-msg-id="${msg.id}"]`)) {
+            return;
+        }
+        
+        var div = document.createElement("div");
+        div.className = "msg " + (msg.sender === "{{ user }}" ? "sent" : "received");
         div.setAttribute("data-msg-id", msg.id);
-
-        const dropdownHTML = isOwn ? `
-            <div class="msg-dropdown">
-                <button type="button" class="msg-menu-btn">⋮</button>
-                <div class="msg-dropdown-content">
-                    <a href="#" class="edit-msg-btn"
-                       data-id="${msg.id}"
-                       data-text="${escapeHtml(msg.text)}"
-                       data-recipient="${currentRecipient}">Изменить</a>
-                    <a href="#" class="delete-msg-btn"
-                       data-id="${msg.id}"
-                       data-recipient="${currentRecipient}">Удалить</a>
-                </div>
-            </div>
-        ` : '';
-
+        
+        var dropdownHTML = "";
+        if (msg.sender === "{{ user }}") {
+            dropdownHTML = `
+                <div class="msg-dropdown">
+                    <button type="button" class="msg-menu-btn">⋮</button>
+                    <div class="msg-dropdown-content">
+                        <a href="#" class="edit-msg-btn"
+                           data-id="${msg.id}"
+                           data-text="${escapeHtml(msg.text)}"
+                           data-recipient="${recipient}">Изменить</a>
+                        <form action="/delete_message" method="post" class="delete-message-form">
+                            <input type="hidden" name="message_id" value="${msg.id}">
+                            <input type="hidden" name="recipient" value="${recipient}">
+                            <button type="submit">Удалить</button>
+                        </form>
+                    </div>
+                </div>`;
+        }
+        
         div.innerHTML = `
             <div class="msg-avatar">
                 ${msg.avatar ? '<img src="' + msg.avatar + '">' : (msg.sender ? msg.sender[0] : '?')}
@@ -167,334 +221,237 @@
                 <div class="time">${msg.timestamp || 'только что'}</div>
             </div>
         `;
-
-        return div;
-    }
-
-    // Добавление нового сообщения в чат
-    function addMessageToChat(msg) {
-        const chatBox = document.getElementById("chat-box");
-        if (!chatBox) return;
         
-        const isOwn = msg.sender === currentUser;
-        const msgElement = createMessageElement(msg, isOwn);
-        chatBox.appendChild(msgElement);
-        messageElements.set(msg.id, msgElement);
+        box.appendChild(div);
         
-        // Прикрепляем обработчики для нового сообщения
-        attachMessageHandlers(msgElement, msg);
-        
-        scrollDown();
+        // Привязываем обработчики для нового сообщения
+        attachMessageHandlers(div);
     }
-
-    // Обновление текста сообщения
-    function updateMessageText(messageId, newText) {
-        const msgElement = messageElements.get(messageId);
-        if (msgElement) {
-            const textSpan = msgElement.querySelector('.text');
-            if (textSpan) {
-                textSpan.textContent = newText;
-            }
-            // Обновляем data-text у кнопки редактирования
-            const editBtn = msgElement.querySelector('.edit-msg-btn');
-            if (editBtn) {
-                editBtn.dataset.text = newText;
-            }
-        }
-    }
-
-    // Удаление сообщения
-    function removeMessageElement(messageId) {
-        const msgElement = messageElements.get(messageId);
-        if (msgElement) {
-            msgElement.remove();
-            messageElements.delete(messageId);
-        }
-    }
-
-    // Прикрепление обработчиков к сообщению
-    function attachMessageHandlers(msgElement, msg) {
-        // Меню (⋮)
-        const menuBtn = msgElement.querySelector('.msg-menu-btn');
-        if (menuBtn) {
-            menuBtn.onclick = function(e) {
+    
+    function attachMessageHandlers(element) {
+        // Обработка выпадающего меню
+        element.querySelectorAll(".msg-menu-btn").forEach(function(btn) {
+            btn.onclick = function(e) {
                 e.stopPropagation();
-                const menu = this.nextElementSibling;
+                var menu = btn.nextElementSibling;
                 if (menu) {
-                    document.querySelectorAll('.msg-dropdown-content.show').forEach(m => {
-                        if (m !== menu) m.classList.remove('show');
-                    });
-                    menu.classList.toggle('show');
+                    menu.classList.toggle("show");
                 }
             };
-        }
-
-        // Кнопка редактирования
-        const editBtn = msgElement.querySelector('.edit-msg-btn');
-        if (editBtn) {
-            editBtn.onclick = async function(e) {
+        });
+        
+        // Кнопки "Изменить"
+        element.querySelectorAll(".edit-msg-btn").forEach(function(btn) {
+            btn.onclick = async function(e) {
                 e.preventDefault();
-                const id = parseInt(this.dataset.id);
-                const oldText = this.dataset.text;
-                const recipient = this.dataset.recipient;
-                
-                const newText = prompt("Редактировать:", oldText);
-                if (!newText || newText === oldText) return;
-                
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({
-                        type: "edit_message",
-                        message_id: id,
-                        new_text: newText,
-                        recipient: recipient
-                    }));
-                }
+                var id = btn.dataset.id;
+                var oldText = btn.dataset.text;
+                var recipient = btn.dataset.recipient;
+                await editMessage(id, oldText, recipient);
             };
-        }
-
-        // Кнопка удаления
-        const deleteBtn = msgElement.querySelector('.delete-msg-btn');
-        if (deleteBtn) {
-            deleteBtn.onclick = async function(e) {
+        });
+        
+        // Формы "Удалить"
+        element.querySelectorAll(".delete-message-form").forEach(function(form) {
+            form.onsubmit = async function(e) {
                 e.preventDefault();
-                const id = parseInt(this.dataset.id);
-                const recipient = this.dataset.recipient;
-                
-                if (confirm("Удалить сообщение?")) {
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({
-                            type: "delete_message",
-                            message_id: id,
-                            recipient: recipient
-                        }));
-                    }
-                }
+                var messageId = form.querySelector('input[name="message_id"]').value;
+                var recipient = form.querySelector('input[name="recipient"]').value;
+                await deleteMessage(messageId, recipient);
             };
-        }
+        });
     }
 
-    // WebSocket соединение
-    function connectWebSocket() {
-        const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const wsUrl = `${wsProtocol}//${window.location.host}/ws?username=${encodeURIComponent(currentUser)}`;
-        
-        ws = new WebSocket(wsUrl);
-        
-        ws.onopen = function() {
-            console.log("WebSocket connected");
-            reconnectAttempts = 0;
-        };
-        
-        ws.onmessage = function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                console.log("Received:", data);
-                
-                if (data.type === "new_message") {
-                    // Проверяем, относится ли сообщение к текущему чату
-                    if (data.sender === currentRecipient || data.sender === currentUser) {
-                        addMessageToChat(data);
-                    }
-                } else if (data.type === "edit_message") {
-                    if (data.sender === currentUser || data.sender === currentRecipient) {
-                        updateMessageText(data.id, data.new_text);
-                    }
-                } else if (data.type === "delete_message") {
-                    if (data.sender === currentUser || data.sender === currentRecipient) {
-                        removeMessageElement(data.id);
-                    }
-                }
-            } catch (e) {
-                console.error("Error parsing message:", e);
-            }
-        };
-        
-        ws.onclose = function() {
-            console.log("WebSocket disconnected, reconnecting...");
-            setTimeout(() => {
-                if (reconnectAttempts < 10) {
-                    reconnectAttempts++;
-                    connectWebSocket();
-                }
-            }, 3000);
-        };
-        
-        ws.onerror = function(error) {
-            console.error("WebSocket error:", error);
-        };
-    }
-
-    // Отправка сообщения через WebSocket
-    function sendMessage() {
-        const inputEl = document.getElementById("msg-input");
-        const sendBtn = document.getElementById("send-btn");
-        
-        if (!inputEl) return;
-        const text = inputEl.value.trim();
-        if (!text || !currentRecipient) return;
-        
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-                type: "message",
-                recipient: currentRecipient,
-                text: text
-            }));
-            inputEl.value = "";
-            inputEl.focus();
-        } else {
-            alert("Нет соединения с сервером");
-        }
-    }
-
-    // Загрузка чата при смене собеседника
     async function loadChat(recipient) {
-        if (recipient === currentRecipient) return;
-        
-        currentRecipient = recipient;
-        
-        // Обновляем скрытое поле
-        const recipientInput = document.getElementById("recipient");
-        if (recipientInput) recipientInput.value = recipient;
-        
-        // Обновляем заголовок
-        const recipientNameSpan = document.getElementById("recipient-name");
-        if (recipientNameSpan) recipientNameSpan.textContent = recipient;
-        
-        // Загружаем историю через fetch
-        const res = await fetch('/message?recipient=' + encodeURIComponent(recipient), {
+        var res = await fetch('/message?recipient=' + encodeURIComponent(recipient), {
             headers: { "X-Partial": "1" }
         });
-        const html = await res.text();
-        const doc = new DOMParser().parseFromString(html, "text/html");
-        
-        const newMessages = doc.querySelector(".chat-messages");
-        const chatBox = document.getElementById("chat-box");
-        
+        var html = await res.text();
+        var doc = new DOMParser().parseFromString(html, "text/html");
+
+        var newMessages = doc.querySelector(".chat-messages");
+        var chatBox = document.getElementById("chat-box");
         if (newMessages && chatBox) {
             chatBox.innerHTML = newMessages.innerHTML;
-            messageElements.clear();
-            
-            // Пересоздаём карту сообщений и прикрепляем обработчики
-            document.querySelectorAll("#chat-box .msg").forEach(el => {
-                const msgId = parseInt(el.getAttribute("data-msg-id"));
-                if (msgId) {
-                    messageElements.set(msgId, el);
-                    // Извлекаем данные сообщения
-                    const textSpan = el.querySelector('.text');
-                    const sender = el.classList.contains('sent') ? currentUser : recipient;
-                    attachMessageHandlers(el, {
-                        id: msgId,
-                        sender: sender,
-                        text: textSpan ? textSpan.textContent : ''
-                    });
-                }
-            });
-        }
-        
-        // Обновляем активный элемент в списке диалогов
-        document.querySelectorAll(".contact-item").forEach(item => {
-            item.classList.remove("active");
-            if (item.dataset.user === recipient) {
-                item.classList.add("active");
+            var lastMsg = newMessages.querySelector(".msg:last-child");
+            if (lastMsg) {
+                chatBox.setAttribute("data-last-id", lastMsg.getAttribute("data-msg-id") || "0");
+            } else {
+                chatBox.setAttribute("data-last-id", "0");
             }
-        });
-        
-        // Показываем input-area если скрыта
-        const inputArea = document.getElementById("input-area");
-        if (inputArea) {
-            inputArea.style.display = "flex";
         }
-        
+
+        var recipientInput = document.getElementById("recipient");
+        if (recipientInput) {
+            recipientInput.value = recipient;
+        }
+
+        attachHandlers();
         scrollDown();
     }
 
-    // Удаление чата
-    async function deleteChat(recipient) {
-        if (!confirm("Удалить чат с " + recipient + "?")) return;
-        
-        const form = new URLSearchParams();
+    async function sendMessage() {
+        if (sending) return;
+        var inputEl = document.getElementById("msg-input");
+        var sendBtn = document.getElementById("send-btn");
+        var recipientEl = document.getElementById("recipient");
+
+        if (!inputEl || !recipientEl) return;
+        var text = inputEl.value.trim();
+        var recipient = recipientEl.value;
+        if (!text) return;
+
+        sending = true;
+        inputEl.disabled = true;
+        if (sendBtn) sendBtn.disabled = true;
+
+        var form = new URLSearchParams();
+        form.append("text", text);
         form.append("recipient", recipient);
-        
-        const res = await fetch("/delete_chat", {
+
+        try {
+            var res = await fetch("/send_message", {
+                method: "POST",
+                headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                body: form
+            });
+            if (res.ok) {
+                inputEl.value = "";
+                inputEl.focus();
+                // Не загружаем весь чат, а ждём long polling
+            }
+        } finally {
+            sending = false;
+            inputEl.disabled = false;
+            if (sendBtn) sendBtn.disabled = false;
+        }
+    }
+
+    async function deleteMessage(messageId, recipient) {
+        if (!confirm("Удалить сообщение?")) return;
+        var form = new URLSearchParams();
+        form.append("message_id", messageId);
+        form.append("recipient", recipient);
+
+        var res = await fetch("/delete_message", {
             method: "POST",
             headers: {"Content-Type": "application/x-www-form-urlencoded"},
             body: form
         });
-        
+        if (res.ok) await loadChat(recipient);
+    }
+
+    async function editMessage(messageId, oldText, recipient) {
+        var newText = prompt("Редактировать:", oldText);
+        if (!newText || newText === oldText) return;
+
+        var form = new URLSearchParams();
+        form.append("message_id", messageId);
+        form.append("new_text", newText);
+        form.append("recipient", recipient);
+
+        var res = await fetch("/edit_message", {
+            method: "POST",
+            headers: {"Content-Type": "application/x-www-form-urlencoded"},
+            body: form
+        });
+        if (res.ok) await loadChat(recipient);
+    }
+
+    async function deleteChat(recipient) {
+        if (!confirm("Удалить чат с " + recipient + "?")) return;
+        var form = new URLSearchParams();
+        form.append("recipient", recipient);
+
+        var res = await fetch("/delete_chat", {
+            method: "POST",
+            headers: {"Content-Type": "application/x-www-form-urlencoded"},
+            body: form
+        });
         if (res.ok) {
+            longPollingActive = false;
             window.location.href = "/message";
         }
     }
 
-    // Прикрепление обработчиков событий
-    function attachGlobalHandlers() {
-        // Отправка сообщения
-        const sendBtn = document.getElementById("send-btn");
-        const msgInput = document.getElementById("msg-input");
-        
-        if (sendBtn) {
-            sendBtn.onclick = sendMessage;
-        }
-        if (msgInput) {
-            msgInput.onkeydown = function(e) {
+    function attachHandlers() {
+        var newBtn = document.getElementById("send-btn");
+        var newInput = document.getElementById("msg-input");
+        if (newBtn && newInput) {
+            newBtn.onclick = sendMessage;
+            newInput.onkeydown = function(e) {
                 if (e.key === "Enter") {
                     e.preventDefault();
                     sendMessage();
                 }
             };
         }
-        
-        // Клик по контакту в списке диалогов
-        document.querySelectorAll(".contact-item").forEach(el => {
+
+        document.querySelectorAll(".contact-item").forEach(function(el) {
             el.onclick = async function(e) {
                 e.preventDefault();
-                await loadChat(this.dataset.user);
+                await loadChat(el.dataset.user);
             };
         });
-        
-        // Удаление чата
-        const deleteChatForm = document.querySelector(".delete-chat-form");
-        if (deleteChatForm) {
-            deleteChatForm.onsubmit = async function(e) {
-                e.preventDefault();
-                const recipient = this.querySelector('input[name="recipient"]').value;
-                await deleteChat(recipient);
+
+        // Обработка выпадающего меню
+        document.querySelectorAll(".msg-menu-btn").forEach(function(btn) {
+            btn.onclick = function(e) {
+                e.stopPropagation();
+                var menu = btn.nextElementSibling;
+                if (menu) {
+                    document.querySelectorAll('.msg-dropdown-content.show').forEach(function(m) {
+                        if (m !== menu) m.classList.remove('show');
+                    });
+                    menu.classList.toggle("show");
+                }
             };
-        }
-        
+        });
+
         // Закрытие меню при клике вне
         document.addEventListener('click', function(e) {
             if (!e.target.closest('.msg-dropdown')) {
-                document.querySelectorAll('.msg-dropdown-content.show').forEach(menu => {
+                document.querySelectorAll('.msg-dropdown-content.show').forEach(function(menu) {
                     menu.classList.remove('show');
                 });
             }
         });
-    }
-    
-    // Инициализация
-    function init() {
-        // Прикрепляем обработчики к существующим сообщениям
-        document.querySelectorAll("#chat-box .msg").forEach(el => {
-            const msgId = parseInt(el.getAttribute("data-msg-id"));
-            if (msgId) {
-                messageElements.set(msgId, el);
-                const textSpan = el.querySelector('.text');
-                const isOwn = el.classList.contains('sent');
-                attachMessageHandlers(el, {
-                    id: msgId,
-                    sender: isOwn ? currentUser : currentRecipient,
-                    text: textSpan ? textSpan.textContent : ''
-                });
-            }
+
+        // Кнопки "Изменить" и "Удалить"
+        document.querySelectorAll(".edit-msg-btn").forEach(function(btn) {
+            btn.onclick = async function(e) {
+                e.preventDefault();
+                var id = btn.dataset.id;
+                var oldText = btn.dataset.text;
+                var recipient = btn.dataset.recipient;
+                await editMessage(id, oldText, recipient);
+            };
         });
-        
-        attachGlobalHandlers();
-        connectWebSocket();
-        scrollDown();
+
+        document.querySelectorAll(".delete-message-form").forEach(function(form) {
+            form.onsubmit = async function(e) {
+                e.preventDefault();
+                var messageId = form.querySelector('input[name="message_id"]').value;
+                var recipient = form.querySelector('input[name="recipient"]').value;
+                await deleteMessage(messageId, recipient);
+            };
+        });
+
+        var deleteChatForm = document.querySelector(".delete-chat-form");
+        if (deleteChatForm) {
+            deleteChatForm.onsubmit = async function(e) {
+                e.preventDefault();
+                var recipient = deleteChatForm.querySelector('input[name="recipient"]').value;
+                await deleteChat(recipient);
+            };
+        }
     }
+
+    attachHandlers();
+    scrollDown();
     
-    init();
+    // Запускаем Long Polling
+    longPolling();
 })();
 </script>
 </body>
