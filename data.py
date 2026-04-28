@@ -158,11 +158,10 @@ def get_dialog(username):
 def send_private_message(sender, receiver, text):
     with conn_mess() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO chat_messages (sender_email, receiver_email, message)
-            VALUES (?, ?, ?)
-        """, (sender, receiver, text))
+        cursor.execute("INSERT INTO messages (...) VALUES (...) RETURNING id")
+        message_id = cursor.fetchone()[0]
         conn.commit()
+        return message_id)
 
 def get_chat_history(user1, user2):
     with conn_mess() as conn:
