@@ -140,40 +140,83 @@
     }
 
     // Обновление списка диалогов в сайдбаре
-    async function updateDialogs() {
-        try {
-            const res = await fetch("/get_dialogs");
-            if (!res.ok) return;
-            const dialogs = await res.json();
-            const sidebar = document.getElementById("sidebar");
-            if (!sidebar) return;
+    // Обновление списка диалогов без мигания активного чата
+async function updateDialogs() {
+    try {
+        const res = await fetch("/get_dialogs");
+        if (!res.ok) return;
+        const dialogs = await res.json();
 
-            // Сохраняем текущее активное имя
-            const activeUser = document.getElementById("recipient")?.value;
+        const sidebar = document.getElementById("sidebar");
+        if (!sidebar) return;
 
-            // Строим новый HTML для сайдбара
-            let html = '<h3 style="color:#64748b;font-size:0.8rem;margin-bottom:15px;">Диалоги</h3>';
-            if (dialogs.length === 0) {
-                html += '<div style="color:#94a3b8;">Нет диалогов</div>';
-            } else {
-                dialogs.forEach(d => {
-                    const activeClass = (d.name === activeUser) ? 'active' : '';
-                    const avatarHtml = d.avatar
-                        ? `<img src="${d.avatar}">`
-                        : d.name[0];
+        const currentRecipient = document.getElementById("recipient")?.value || "{{ recipient }}";
+
+        // Сохраняем текущий HTML, чтобы потом сравнить
+        const existingItems = new Map();
+        document.querySelectorAll("#sidebar .contact-item").forEach(item => {
+            const user = item.dataset.user;
+            if (user) existingItems.set(user, item);
+        });
+
+        let html = '<h3 style="color:#64748b;font-size:0.8rem;margin-bottom:15px;">Диалоги</h3>';
+
+        if (dialogs.length === 0) {
+            html += '<div style="color:#94a3b8;">Нет диалогов</div>';
+        } else {
+            dialogs.forEach(d => {
+                const isActive = d.name === currentRecipient;
+                const avatarHtml = d.avatar 
+                    ? `<img src="${d.avatar}" alt="${d.name}">` 
+                    : `<span class="avatar-letter">${d.name[0]}</span>`;
+
+                // Если элемент уже существует — используем его (чтобы не терять обработчики и анимации)
+                if (existingItems.has(d.name)) {
+                    const oldItem = existingItems.get(d.name);
+                    oldItem.classList.toggle('active', isActive);
+                    // Можно также обновить аватарку, если она изменилась
+                    const miniAvatar = oldItem.querySelector('.mini-avatar');
+                    if (miniAvatar) miniAvatar.innerHTML = avatarHtml;
+                } else {
+                    // Новый диалог — создаём
                     html += `
-                        <div class="contact-item ${activeClass}" data-user="${d.name}">
+                        <div class="contact-item ${isActive ? 'active' : ''}" data-user="${d.name}">
                             <a href="/user/${d.name}" class="mini-avatar" title="Профиль ${d.name}">
                                 ${avatarHtml}
                             </a>
                             <span class="contact-name">${d.name}</span>
                         </div>`;
-                });
+                }
+            });
+        }
+
+        // Добавляем только новые элементы (если были)
+        if (html.includes('contact-item')) {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html;
+            const newItems = tempDiv.querySelectorAll('.contact-item');
+            
+            newItems.forEach(item => {
+                if (!document.querySelector(`.contact-item[data-user="${item.dataset.user}"]`)) {
+                    sidebar.appendChild(item);
+                }
+            });
+        }
+
+        // Удаляем диалоги, которых больше нет
+        document.querySelectorAll("#sidebar .contact-item").forEach(item => {
+            const user = item.dataset.user;
+            if (user && !dialogs.some(d => d.name === user)) {
+                item.remove();
             }
-            sidebar.innerHTML = html;
-            attachSidebarHandlers();
-        } catch(e) {}
+        });
+
+        attachSidebarHandlers();
+
+    } catch(e) {
+        console.error("Ошибка обновления диалогов:", e);
     }
+}
 
     // Получение новых сообщений
     function startPollingMessages() {
@@ -439,16 +482,21 @@
     }
 
     function attachSidebarHandlers() {
-        document.querySelectorAll("#sidebar .contact-item").forEach(el => {
-            el.addEventListener("click", async function(e) {
-                // Если клик был по ссылке профиля – не перехватываем
-                if (e.target.closest('a')) return;
-                e.preventDefault();
-                const user = el.dataset.user;
-                if (user) await loadChat(user);
-            });
-        });
-    }
+    const sidebar = document.getElementById("sidebar");
+    if (!sidebar) return;
+
+    sidebar.addEventListener('click', async function(e) {
+        const contactItem = e.target.closest('.contact-item');
+        if (!contactItem) return;
+
+        // Если кликнули по ссылке профиля — не мешаем
+        if (e.target.closest('a.mini-avatar')) return;
+
+        e.preventDefault();
+        const user = contactItem.dataset.user;
+        if (user) await loadChat(user);
+    });
+}
 
     function attachAllHandlers() {
         const newBtn = document.getElementById("send-btn");
@@ -549,7 +597,7 @@ function startDialogsPolling() {
 
             attachHandlers(); // переподключаем события
         } catch(e) {}
-    }, 5000); // каждые 5 секунд
+    }, 15000); // каждые 5 секунд
 }
 
  // Запускаем при загрузке
