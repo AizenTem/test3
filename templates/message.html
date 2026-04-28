@@ -123,13 +123,19 @@
     let pollMessagesInterval = null;
     let pollDialogsInterval = null;
     let sending = false;
+    let currentRecipient = "{{ recipient }}";   // запоминаем текущий чат
 
-    // Преобразование всех временных меток на странице
+    // ====================== Вспомогательные функции ======================
     function convertAllTimestamps() {
         document.querySelectorAll('.time[datetime]').forEach(el => {
-            if (!el.textContent) {  // если ещё не заполнено
+            if (el.textContent.trim() === '') {
                 const dt = new Date(el.getAttribute('datetime'));
-                el.textContent = dt.toLocaleString();
+                if (!isNaN(dt.getTime())) {
+                    el.textContent = dt.toLocaleString('ru-RU', {
+                        year: 'numeric', month: '2-digit', day: '2-digit',
+                        hour: '2-digit', minute: '2-digit', hour12: false
+                    }).replace(',', '');
+                }
             }
         });
     }
@@ -139,55 +145,28 @@
         if (box) box.scrollTop = box.scrollHeight;
     }
 
-    // Обновление списка диалогов в сайдбаре
-    async function updateDialogs() {
-        try {
-            const res = await fetch("/get_dialogs");
-            if (!res.ok) return;
-            const dialogs = await res.json();
-            const sidebar = document.getElementById("sidebar");
-            if (!sidebar) return;
-
-            // Сохраняем текущее активное имя
-            const activeUser = document.getElementById("recipient")?.value;
-
-            // Строим новый HTML для сайдбара
-            let html = '<h3 style="color:#64748b;font-size:0.8rem;margin-bottom:15px;">Диалоги</h3>';
-            if (dialogs.length === 0) {
-                html += '<div style="color:#94a3b8;">Нет диалогов</div>';
-            } else {
-                dialogs.forEach(d => {
-                    const activeClass = (d.name === activeUser) ? 'active' : '';
-                    const avatarHtml = d.avatar
-                        ? `<img src="${d.avatar}">`
-                        : d.name[0];
-                    html += `
-                        <div class="contact-item ${activeClass}" data-user="${d.name}">
-                            <a href="/user/${d.name}" class="mini-avatar" title="Профиль ${d.name}">
-                                ${avatarHtml}
-                            </a>
-                            <span class="contact-name">${d.name}</span>
-                        </div>`;
-                });
-            }
-            sidebar.innerHTML = html;
-            attachSidebarHandlers();
-        } catch(e) {}
+    function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.appendChild(document.createTextNode(text));
+        return div.innerHTML;
     }
 
-    // Получение новых сообщений
+    // ====================== Обновление только новых сообщений ======================
     function startPollingMessages() {
         stopPollingMessages();
         const box = document.getElementById("chat-box");
-        const recipientEl = document.getElementById("recipient");
-        if (!box || !recipientEl) return;
+        if (!box) return;
 
-        pollMessagesInterval = setInterval(async function() {
+        pollMessagesInterval = setInterval(async () => {
+            const recipient = document.getElementById("recipient")?.value;
+            if (!recipient) return;
+
             const lastId = parseInt(box.getAttribute("data-last-id")) || 0;
-            const recipient = recipientEl.value;
+
             try {
                 const res = await fetch(`/get_new_messages?recipient=${encodeURIComponent(recipient)}&after_id=${lastId}`);
                 if (!res.ok) return;
+
                 const newMsgs = await res.json();
                 if (!newMsgs.length) return;
 
@@ -196,27 +175,18 @@
                     div.className = `msg ${msg.sender === "{{ user }}" ? "sent" : "received"}`;
                     div.setAttribute("data-msg-id", msg.id);
 
-                    const timeIso = msg.timestamp;
-                    const time = new Date(timeIso).toLocaleString();
-
-                    let dropdownHTML = "";
-                    if (msg.sender === "{{ user }}") {
-                        dropdownHTML = `
-                            <div class="msg-dropdown">
-                                <button type="button" class="msg-menu-btn">⋮</button>
-                                <div class="msg-dropdown-content">
-                                    <a href="#" class="edit-msg-btn"
-                                       data-id="${msg.id}"
-                                       data-text="${escapeHtml(msg.text)}"
-                                       data-recipient="${recipient}">Изменить</a>
-                                    <form action="/delete_message" method="post" class="delete-message-form">
-                                        <input type="hidden" name="message_id" value="${msg.id}">
-                                        <input type="hidden" name="recipient" value="${recipient}">
-                                        <button type="submit">Удалить</button>
-                                    </form>
-                                </div>
-                            </div>`;
-                    }
+                    const dropdownHTML = (msg.sender === "{{ user }}") ? `
+                        <div class="msg-dropdown">
+                            <button type="button" class="msg-menu-btn">⋮</button>
+                            <div class="msg-dropdown-content">
+                                <a href="#" class="edit-msg-btn" data-id="${msg.id}" data-text="${escapeHtml(msg.text)}" data-recipient="${recipient}">Изменить</a>
+                                <form action="/delete_message" method="post" class="delete-message-form">
+                                    <input type="hidden" name="message_id" value="${msg.id}">
+                                    <input type="hidden" name="recipient" value="${recipient}">
+                                    <button type="submit">Удалить</button>
+                                </form>
+                            </div>
+                        </div>` : "";
 
                     div.innerHTML = `
                         <div class="msg-avatar">
@@ -227,20 +197,25 @@
                                 <span class="text">${escapeHtml(msg.text)}</span>
                                 ${dropdownHTML}
                             </div>
-                            <time class="time" datetime="${timeIso}">${time}</time>
+                            <time class="time" datetime="${msg.iso_time || msg.timestamp}"></time>
                         </div>
                     `;
+
                     box.appendChild(div);
                 });
 
                 const maxId = Math.max(...newMsgs.map(m => m.id));
                 box.setAttribute("data-last-id", maxId);
-                if (box.scrollTop + box.clientHeight >= box.scrollHeight - 20) {
+
+                if (box.scrollTop + box.clientHeight >= box.scrollHeight - 30) {
                     scrollDown();
                 }
-                // При появлении новых сообщений может появиться новый диалог – обновим через updateDialogs
-            } catch(e) {}
-        }, 3000);
+
+                convertAllTimestamps();
+            } catch (e) {
+                console.error("Polling error:", e);
+            }
+        }, 2500); // чуть чаще, но легче
     }
 
     function stopPollingMessages() {
@@ -250,212 +225,133 @@
         }
     }
 
+    // ====================== Умное обновление списка диалогов ======================
+    async function updateDialogs() {
+        try {
+            const res = await fetch("/get_dialogs");
+            if (!res.ok) return;
+            const dialogs = await res.json();
+
+            const sidebar = document.getElementById("sidebar");
+            if (!sidebar) return;
+
+            const activeUser = document.getElementById("recipient")?.value || "";
+
+            // Обновляем только содержимое после <h3>
+            let html = '';
+            if (dialogs.length === 0) {
+                html = '<div style="color:#94a3b8;">Нет диалогов</div>';
+            } else {
+                dialogs.forEach(d => {
+                    const activeClass = (d.name === activeUser) ? 'active' : '';
+                    const avatarHtml = d.avatar ? `<img src="${d.avatar}">` : d.name[0];
+
+                    html += `
+                        <div class="contact-item ${activeClass}" data-user="${d.name}">
+                            <a href="/user/${d.name}" class="mini-avatar" title="Профиль ${d.name}">
+                                ${avatarHtml}
+                            </a>
+                            <span class="contact-name">${d.name}</span>
+                        </div>`;
+                });
+            }
+
+            // Заменяем только список, не трогаем заголовок
+            const oldHeader = sidebar.querySelector("h3");
+            sidebar.innerHTML = '';
+            if (oldHeader) sidebar.appendChild(oldHeader);
+            sidebar.insertAdjacentHTML('beforeend', html);
+
+            attachSidebarHandlers();
+        } catch(e) {}
+    }
+
     function startPollingDialogs() {
-        stopPollingDialogs();
-        pollDialogsInterval = setInterval(updateDialogs, 5000);
+        if (pollDialogsInterval) clearInterval(pollDialogsInterval);
+        pollDialogsInterval = setInterval(updateDialogs, 7000); // реже — 7 секунд
     }
 
     function stopPollingDialogs() {
-        if (pollDialogsInterval) {
-            clearInterval(pollDialogsInterval);
-            pollDialogsInterval = null;
-        }
+        if (pollDialogsInterval) clearInterval(pollDialogsInterval);
     }
 
-    function escapeHtml(text) {
-        const div = document.createElement("div");
-        div.appendChild(document.createTextNode(text));
-        return div.innerHTML;
-    }
-
-    // Загрузка чата для нового выбранного контакта
+    // ====================== Загрузка чата (только когда меняем собеседника) ======================
     async function loadChat(recipient) {
+        if (recipient === currentRecipient) return;
+        currentRecipient = recipient;
+
         stopPollingMessages();
-        const res = await fetch('/message?recipient=' + encodeURIComponent(recipient), {
-            headers: { "X-Partial": "1" }
-        });
-        const html = await res.text();
-        const doc = new DOMParser().parseFromString(html, "text/html");
 
-        const newChatArea = doc.querySelector(".chat-area");
-        if (!newChatArea) return;
+        try {
+            const res = await fetch('/message?recipient=' + encodeURIComponent(recipient), {
+                headers: { "X-Partial": "1" }
+            });
 
-        const newHeader = newChatArea.querySelector(".chat-header");
-        const currentHeader = document.querySelector(".chat-header");
-        if (newHeader && currentHeader) {
-            currentHeader.innerHTML = newHeader.innerHTML;
+            const html = await res.text();
+            const doc = new DOMParser().parseFromString(html, "text/html");
+
+            // Обновляем только header и сообщения
+            document.querySelector(".chat-header").innerHTML = doc.querySelector(".chat-header").innerHTML;
+
+            const newMessagesHTML = doc.querySelector(".chat-messages").innerHTML;
+            const chatBox = document.getElementById("chat-box");
+            chatBox.innerHTML = newMessagesHTML;
+            chatBox.setAttribute("data-last-id", chatBox.querySelector(".msg:last-child")?.getAttribute("data-msg-id") || "0");
+
+            document.getElementById("recipient").value = recipient;
+
+            convertAllTimestamps();
+            attachAllHandlers();
+            scrollDown();
+            startPollingMessages();
+            updateDialogs();
+
+        } catch(e) {
+            console.error("loadChat error:", e);
         }
-
-        const newMessages = newChatArea.querySelector(".chat-messages");
-        const chatBox = document.getElementById("chat-box");
-        if (newMessages && chatBox) {
-            chatBox.innerHTML = newMessages.innerHTML;
-            const lastMsg = newMessages.querySelector(".msg:last-child");
-            if (lastMsg) {
-                chatBox.setAttribute("data-last-id", lastMsg.getAttribute("data-msg-id") || "0");
-            } else {
-                chatBox.setAttribute("data-last-id", "0");
-            }
-        }
-
-        const recipientInput = document.getElementById("recipient");
-        if (recipientInput) {
-            recipientInput.value = recipient;
-        }
-
-        const inputArea = document.getElementById("input-area");
-        if (inputArea) {
-            inputArea.style.display = "flex";
-        } else {
-            const chatAreaEl = document.querySelector(".chat-area");
-            if (chatAreaEl) {
-                const newInputArea = document.createElement("div");
-                newInputArea.className = "input-area";
-                newInputArea.id = "input-area";
-                newInputArea.innerHTML = '<input type="hidden" id="recipient" value="' + recipient + '"><input type="text" id="msg-input" placeholder="Сообщение..." autocomplete="off"><button id="send-btn" type="button">Отправить</button>';
-                chatAreaEl.appendChild(newInputArea);
-            }
-        }
-
-        // Конвертируем временные метки загруженных сообщений
-        convertAllTimestamps();
-
-        attachAllHandlers();
-        scrollDown();
-        startPollingMessages();
-        updateDialogs(); // обновим сайдбар после смены чата
     }
 
+    // ====================== Отправка сообщения ======================
     async function sendMessage() {
         if (sending) return;
         const inputEl = document.getElementById("msg-input");
         const sendBtn = document.getElementById("send-btn");
-        const recipientEl = document.getElementById("recipient");
+        const recipient = document.getElementById("recipient").value;
 
-        if (!inputEl || !recipientEl) return;
+        if (!inputEl || !recipient) return;
         const text = inputEl.value.trim();
-        const recipient = recipientEl.value;
         if (!text) return;
 
         sending = true;
-        inputEl.disabled = true;
-        if (sendBtn) sendBtn.disabled = true;
-
-        const form = new URLSearchParams();
-        form.append("text", text);
-        form.append("recipient", recipient);
+        inputEl.disabled = sendBtn.disabled = true;
 
         try {
+            const form = new URLSearchParams({ text, recipient });
             const res = await fetch("/send_message", {
                 method: "POST",
                 headers: {"Content-Type": "application/x-www-form-urlencoded"},
                 body: form
             });
+
             if (res.ok) {
                 inputEl.value = "";
-                inputEl.focus();
-                await loadChat(recipient);
+                // Не вызываем loadChat() — новые сообщения придут через polling
             }
         } finally {
             sending = false;
-            inputEl.disabled = false;
-            if (sendBtn) sendBtn.disabled = false;
+            inputEl.disabled = sendBtn.disabled = false;
+            inputEl.focus();
         }
     }
 
-    async function deleteMessage(messageId, recipient) {
-        if (!confirm("Удалить сообщение?")) return;
-        const form = new URLSearchParams();
-        form.append("message_id", messageId);
-        form.append("recipient", recipient);
-
-        const res = await fetch("/delete_message", {
-            method: "POST",
-            headers: {"Content-Type": "application/x-www-form-urlencoded"},
-            body: form
-        });
-        if (res.ok) await loadChat(recipient);
-    }
-
-    async function editMessage(messageId, oldText, recipient) {
-        const newText = prompt("Редактировать:", oldText);
-        if (!newText || newText === oldText) return;
-
-        const form = new URLSearchParams();
-        form.append("message_id", messageId);
-        form.append("new_text", newText);
-        form.append("recipient", recipient);
-
-        const res = await fetch("/edit_message", {
-            method: "POST",
-            headers: {"Content-Type": "application/x-www-form-urlencoded"},
-            body: form
-        });
-        if (res.ok) await loadChat(recipient);
-    }
-
-    async function deleteChat(recipient) {
-        if (!confirm("Удалить чат с " + recipient + "?")) return;
-        const form = new URLSearchParams();
-        form.append("recipient", recipient);
-
-        const res = await fetch("/delete_chat", {
-            method: "POST",
-            headers: {"Content-Type": "application/x-www-form-urlencoded"},
-            body: form
-        });
-        if (res.ok) {
-            stopPollingMessages();
-            stopPollingDialogs();
-            window.location.href = "/message";
-        }
-    }
-
-    // Обработчик начала чата через AJAX
-    async function startChatAjax(e) {
-        e.preventDefault();
-        const input = document.getElementById("contact-name");
-        const name = input.value.trim();
-        if (!name) return;
-
-        const form = new URLSearchParams();
-        form.append("contact_name", name);
-
-        const res = await fetch("/start_chat", {
-            method: "POST",
-            headers: {"Content-Type": "application/x-www-form-urlencoded"},
-            body: form
-        });
-        if (res.ok) {
-            const data = await res.json();
-            if (data.status === "ok") {
-                input.value = "";
-                await loadChat(data.recipient);
-            }
-        } else {
-            const text = await res.text();
-            alert(text || "Ошибка");
-        }
-    }
-
-    function attachSidebarHandlers() {
-        document.querySelectorAll("#sidebar .contact-item").forEach(el => {
-            el.addEventListener("click", async function(e) {
-                // Если клик был по ссылке профиля – не перехватываем
-                if (e.target.closest('a')) return;
-                e.preventDefault();
-                const user = el.dataset.user;
-                if (user) await loadChat(user);
-            });
-        });
-    }
-
+    // ====================== Прикрепление обработчиков ======================
     function attachAllHandlers() {
-        const newBtn = document.getElementById("send-btn");
-        const newInput = document.getElementById("msg-input");
-        if (newBtn && newInput) {
-            newBtn.onclick = sendMessage;
-            newInput.onkeydown = function(e) {
+        // Отправка
+        const sendBtn = document.getElementById("send-btn");
+        const msgInput = document.getElementById("msg-input");
+        if (sendBtn && msgInput) {
+            sendBtn.onclick = sendMessage;
+            msgInput.onkeydown = e => {
                 if (e.key === "Enter") {
                     e.preventDefault();
                     sendMessage();
@@ -463,101 +359,98 @@
             };
         }
 
-        attachSidebarHandlers();
+        // Клик по контактам
+        document.querySelectorAll("#sidebar .contact-item").forEach(el => {
+            el.addEventListener("click", function(e) {
+                if (e.target.closest('a')) return;
+                e.preventDefault();
+                loadChat(this.dataset.user);
+            });
+        });
 
-        // Меню сообщений
+        // Меню ⋮
         document.querySelectorAll(".msg-menu-btn").forEach(btn => {
             btn.onclick = function(e) {
                 e.stopPropagation();
-                const menu = btn.nextElementSibling;
-                if (menu) {
-                    document.querySelectorAll('.msg-dropdown-content.show').forEach(m => {
-                        if (m !== menu) m.classList.remove('show');
-                    });
-                    menu.classList.toggle("show");
-                }
+                const menu = this.nextElementSibling;
+                document.querySelectorAll('.msg-dropdown-content.show').forEach(m => m.classList.remove('show'));
+                if (menu) menu.classList.toggle("show");
             };
         });
 
-        document.addEventListener('click', function(e) {
+        document.addEventListener('click', e => {
             if (!e.target.closest('.msg-dropdown')) {
                 document.querySelectorAll('.msg-dropdown-content.show').forEach(m => m.classList.remove('show'));
             }
         });
 
+        // Редактирование и удаление
         document.querySelectorAll(".edit-msg-btn").forEach(btn => {
             btn.onclick = async function(e) {
                 e.preventDefault();
-                const id = btn.dataset.id;
-                const oldText = btn.dataset.text;
-                const recipient = btn.dataset.recipient;
-                await editMessage(id, oldText, recipient);
+                const id = this.dataset.id;
+                const oldText = this.dataset.text;
+                const recipient = this.dataset.recipient;
+                const newText = prompt("Редактировать:", oldText);
+                if (!newText || newText === oldText) return;
+
+                const form = new URLSearchParams({ message_id: id, new_text: newText, recipient });
+                await fetch("/edit_message", { method: "POST", body: form });
             };
         });
 
         document.querySelectorAll(".delete-message-form").forEach(form => {
             form.onsubmit = async function(e) {
                 e.preventDefault();
-                const messageId = form.querySelector('input[name="message_id"]').value;
-                const recipient = form.querySelector('input[name="recipient"]').value;
-                await deleteMessage(messageId, recipient);
+                if (!confirm("Удалить сообщение?")) return;
+                const messageId = this.querySelector('[name="message_id"]').value;
+                const recipient = this.querySelector('[name="recipient"]').value;
+                const f = new URLSearchParams({ message_id: messageId, recipient });
+                await fetch("/delete_message", { method: "POST", body: f });
             };
         });
 
+        // Удаление чата
         const deleteChatForm = document.querySelector(".delete-chat-form");
         if (deleteChatForm) {
             deleteChatForm.onsubmit = async function(e) {
                 e.preventDefault();
-                const recipient = deleteChatForm.querySelector('input[name="recipient"]').value;
-                await deleteChat(recipient);
+                const recipient = this.querySelector('[name="recipient"]').value;
+                if (confirm(`Удалить чат с ${recipient}?`)) {
+                    const f = new URLSearchParams({ recipient });
+                    await fetch("/delete_chat", { method: "POST", body: f });
+                    window.location.href = "/message";
+                }
             };
         }
 
-        // Форма начала чата
-        document.getElementById("start-chat-form").onsubmit = startChatAjax;
+        // Новый чат
+        document.getElementById("start-chat-form").onsubmit = async function(e) {
+            e.preventDefault();
+            const name = document.getElementById("contact-name").value.trim();
+            if (!name) return;
+            const form = new URLSearchParams({ contact_name: name });
+            const res = await fetch("/start_chat", { method: "POST", body: form });
+            if (res.ok) {
+                document.getElementById("contact-name").value = "";
+                loadChat(name);
+            }
+        };
     }
-    let dialogsInterval = null;
 
-function startDialogsPolling() {
-    if (dialogsInterval) clearInterval(dialogsInterval);
-    dialogsInterval = setInterval(async () => {
-        try {
-            const res = await fetch("/get_dialogs");
-            if (!res.ok) return;
-            const newDialogs = await res.json();
-
-            const sidebar = document.querySelector(".sidebar");
-            if (!sidebar) return;
-
-            // Простая перерисовка списка диалогов
-            let html = `<h3 style="color:#64748b;font-size:0.8rem;margin-bottom:15px;">Диалоги</h3>`;
-            if (newDialogs.length) {
-                newDialogs.forEach(d => {
-                    const active = d.name === "{{ recipient }}" ? "active" : "";
-                    html += `
-                        <a href="#" class="contact-item ${active}" data-user="${d.name}">
-                            <div class="mini-avatar">
-                                ${d.avatar ? `<img src="${d.avatar}">` : d.name[0]}
-                            </div>
-                            <span>${d.name}</span>
-                        </a>`;
-                });
-            } 
-            sidebar.innerHTML = html;
-
-            attachHandlers(); // переподключаем события
-        } catch(e) {}
-    }, 5000); // каждые 5 секунд
-}
-
- // Запускаем при загрузке
-startDialogsPolling();
-    // Инициализация при загрузке страницы
+    // ====================== Инициализация ======================
     attachAllHandlers();
     convertAllTimestamps();
     scrollDown();
     startPollingMessages();
     startPollingDialogs();
+
+    // Фокус на поле ввода при загрузке
+    setTimeout(() => {
+        const input = document.getElementById("msg-input");
+        if (input) input.focus();
+    }, 300);
+
 })();
 </script>
 
