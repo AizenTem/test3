@@ -289,7 +289,30 @@ def get_dialogs(request: Request):
         for d in data.get_dialog(me)
     ]
     return JSONResponse(content=dialogs)
+@app.get("/get_new_messages")
+def get_new_messages(request: Request, recipient: str, after_id: int = 0):
+    me = current_user(request)
+    if not me:
+        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
 
+    recipient = recipient.strip()
+    if not recipient or recipient == me:
+        return JSONResponse(content=[])
+
+    # Получаем только новые сообщения
+    rows = data.get_chat_history_after(me, recipient, after_id)  # нужно добавить эту функцию
+
+    messages = [
+        {
+            "id": row[0],
+            "sender": row[1],
+            "text": row[2],
+            "timestamp": row[3],
+            "avatar": data.get_user_avatar(row[1]),
+        }
+        for row in rows
+    ]
+    return JSONResponse(content=messages)
 @app.post("/start_chat")
 def start_chat(request: Request, contact_name: str = Form(...)):
     me = current_user(request)
