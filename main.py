@@ -13,7 +13,7 @@ from rich.traceback import install
 
 class ConnectionManager:
     def __init__(self):
-        # user -> list of WebSocket connections (на случай нескольких вкладок)
+        # user -> list of WebSocket connections
         self.active_connections: Dict[str, List[WebSocket]] = {}
 
     async def connect(self, websocket: WebSocket, username: str):
@@ -36,7 +36,7 @@ class ConnectionManager:
                 try:
                     await connection.send_json(message)
                 except:
-                    pass  # клиент отключился
+                    pass
 
     async def broadcast_to_pair(self, message: dict, user1: str, user2: str):
         """Отправить сообщение обоим участникам чата"""
@@ -68,25 +68,6 @@ def current_user(request: Request):
     return request.session.get("user")
 
 # ====================== Аутентификация ======================
-
-def current_user_from_ws(websocket: WebSocket):
-    """Получение пользователя из cookie WebSocket соединения"""
-    # В FastAPI WebSocket нет прямого доступа к session middleware
-    # Используем query параметр при подключении
-    return None  # Будем передавать username в URL
-@app.websocket("/ws/{username}")
-async def websocket_endpoint(websocket: WebSocket, username: str):
-    # Принимаем соединение
-    await manager.connect(websocket, username)
-    try:
-        while True:
-            # Ждем сообщения от клиента (например, ping для поддержания соединения)
-            data = await websocket.receive_text()
-            # Можно обрабатывать дополнительные команды
-            if data == "ping":
-                await websocket.send_text("pong")
-    except WebSocketDisconnect:
-        manager.disconnect(websocket, username)
 @app.get("/", response_class=HTMLResponse)
 def read_form(request: Request):
     if current_user(request):
@@ -119,7 +100,7 @@ def create_user(request: Request, name: str = Form(...), password: str = Form(..
 
     if not PASSWORD_PATTERN.match(password):
         return RedirectResponse(
-            url="/register?error=Пароль содержит недопустимые символы. Разрешены: латиница, кириллица, цифры и =,._!@#$%^&*<>()-+/*`\"'{[}]",
+            url="/register?error=Пароль содержит недопустимые символы",
             status_code=303,
         )
 
@@ -155,7 +136,6 @@ def page(request: Request):
         {"request": request, "user": user, "photos": photos, "avatar": avatar},
     )
 
-# Новый маршрут — просмотр профиля другого пользователя
 @app.get("/profile/{username}", response_class=HTMLResponse)
 def user_profile(request: Request, username: str):
     me = current_user(request)
@@ -172,7 +152,7 @@ def user_profile(request: Request, username: str):
 
     avatar = data.get_user_avatar(username)
     return templates.TemplateResponse(
-        "user_profile.html",  # можно использовать тот же mypage.html или отдельный
+        "user_profile.html",
         {"request": request, "profile_user": username, "photos": photos, "avatar": avatar, "me": me},
     )
 
@@ -193,7 +173,6 @@ def upload_avatar(request: Request, file: UploadFile = File(...)):
     user_folder = os.path.join(upload_dir, user)
     os.makedirs(user_folder, exist_ok=True)
 
-    # Удаляем старый аватар
     for old in os.listdir(user_folder):
         if old.startswith("avatar."):
             try:
@@ -231,7 +210,6 @@ def upload(request: Request, file: UploadFile = File(...)):
     safe_file = os.path.basename(file.filename)
     file_path = os.path.join(user_folder, safe_file)
 
-    # Удаляем старую версию с таким же именем
     if os.path.exists(file_path):
         data.delete_photo(file_path)
         try:
@@ -257,7 +235,6 @@ def delete(request: Request, photo: str = Form(...)):
     if not target_file.startswith(user_folder + os.sep):
         return RedirectResponse(url="/success", status_code=303)
 
-    # Если это был аватар — сбрасываем его
     avatar = data.get_user_avatar(user)
     if avatar and avatar == photo:
         data.set_user_avatar(user, None)
@@ -268,7 +245,6 @@ def delete(request: Request, photo: str = Form(...)):
 
     return RedirectResponse(url="/success", status_code=303)
 
-# Установить фото как аватар
 @app.post("/set_as_avatar")
 def set_as_avatar(request: Request, photo: str = Form(...)):
     user = current_user(request)
@@ -307,7 +283,7 @@ def messages_page(request: Request, recipient: str = "", reci: str = ""):
                 "sender": row[1],
                 "text": row[2],
                 "timestamp": row[3],
-                "iso_time": row[4],          # ← Важно!
+                "iso_time": row[4],
                 "avatar": data.get_user_avatar(row[1]),
             }
             for row in rows
@@ -335,21 +311,17 @@ def messages_page(request: Request, recipient: str = "", reci: str = ""):
 
 @app.websocket("/ws/{username}")
 async def websocket_endpoint(websocket: WebSocket, username: str):
-    me = current_user_from_ws(websocket)  # нужно реализовать
-    if not me or me != username:  # защита — только свой username
-        await websocket.close()
-        return
-
+    # Принимаем соединение - для простоты доверяем username из URL
     await manager.connect(websocket, username)
     try:
         while True:
-            # Можно принимать ping/pong или другие сообщения
+            # Ждем сообщения от клиента (ping для поддержания соединения)
             data = await websocket.receive_text()
-            # Пока ничего не делаем — отправка сообщений идёт через HTTP POST
+            if data == "ping":
+                await websocket.send_text("pong")
     except WebSocketDisconnect:
         manager.disconnect(websocket, username)
 
-# Получение актуального списка диалогов (для реального времени)
 @app.get("/get_dialogs")
 def get_dialogs(request: Request):
     me = current_user(request)
@@ -360,6 +332,7 @@ def get_dialogs(request: Request):
         for d in data.get_dialog(me)
     ]
     return JSONResponse(content=dialogs)
+
 @app.get("/get_new_messages")
 def get_new_messages(request: Request, recipient: str, after_id: int = 0):
     me = current_user(request)
@@ -370,8 +343,7 @@ def get_new_messages(request: Request, recipient: str, after_id: int = 0):
     if not recipient or recipient == me:
         return JSONResponse(content=[])
 
-    # Получаем только новые сообщения
-    rows = data.get_chat_history_after(me, recipient, after_id)  # нужно добавить эту функцию
+    rows = data.get_chat_history_after(me, recipient, after_id)
 
     messages = [
         {
@@ -384,6 +356,7 @@ def get_new_messages(request: Request, recipient: str, after_id: int = 0):
         for row in rows
     ]
     return JSONResponse(content=messages)
+
 @app.post("/start_chat")
 def start_chat(request: Request, contact_name: str = Form(...)):
     me = current_user(request)
@@ -412,24 +385,26 @@ async def send_msg(request: Request, text: str = Form(...), recipient: str = For
         return RedirectResponse(url=f"/message?recipient={recipient_clean}", status_code=303)
 
     # Сохраняем сообщение
-    message_id = data.send_private_message(me, recipient_clean, text_clean)  # предполагаю, что функция возвращает id
+    message_id = data.send_private_message(me, recipient_clean, text_clean)
     data.create_chats(me, recipient_clean)
 
-    # Формируем данные для фронта
+    # Получаем время
+    import datetime
+    timestamp = datetime.datetime.now().strftime("%H:%M")
+
+    # Формируем данные для WebSocket
     msg_data = {
         "type": "new_message",
         "id": message_id,
         "sender": me,
         "text": text_clean,
-        "timestamp": "только что",  # или нормальное время
+        "timestamp": timestamp,
         "avatar": data.get_user_avatar(me),
-        "is_own": True
     }
 
-    # Мгновенно отправляем обоим участникам
+    # Отправляем через WebSocket
     await manager.broadcast_to_pair(msg_data, me, recipient_clean)
 
-    # Для обратной совместимости (если кто-то открыл через обычный GET)
     return RedirectResponse(url=f"/message?recipient={recipient_clean}", status_code=303)
 
 @app.post("/edit_message")
@@ -460,7 +435,7 @@ def delete_message(request: Request, message_id: int = Form(...), recipient: str
     return RedirectResponse(url=f"/message?recipient={recipient}", status_code=303)
 
 @app.get("/user/{username}", response_class=HTMLResponse)
-def user_profile(request: Request, username: str):
+def user_profile_page(request: Request, username: str):
     me = current_user(request)
     if not me:
         return RedirectResponse(url="/login", status_code=303)
@@ -468,18 +443,17 @@ def user_profile(request: Request, username: str):
     username = username.strip()
     if not data.check_users(username):
         return templates.TemplateResponse(
-            "error.html", 
-            {"request": request, "error": "Пользователь не найден"}, 
+            "error.html",
+            {"request": request, "error": "Пользователь не найден"},
             status_code=404
         )
 
     user_folder = os.path.join(upload_dir, username)
     photos = []
     if os.path.exists(user_folder):
-        # Исключаем аватар из галереи
         photos = [
-            f"/users_images/{username}/{f}" 
-            for f in os.listdir(user_folder) 
+            f"/users_images/{username}/{f}"
+            for f in os.listdir(user_folder)
             if not f.startswith("avatar.")
         ]
 
@@ -492,7 +466,7 @@ def user_profile(request: Request, username: str):
             "profile_user": username,
             "photos": photos,
             "avatar": avatar,
-            "me": me,                    # текущий пользователь (для проверки "это мой профиль?")
+            "me": me,
             "is_own_profile": me == username
         },
     )
