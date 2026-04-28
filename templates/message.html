@@ -23,36 +23,37 @@
     <div class="chat-wrapper">
         <aside class="sidebar">
             <h3 style="color:#64748b;font-size:0.8rem;margin-bottom:15px;">Диалоги</h3>
-
-            {% if dialogs %}
-                {% for d in dialogs %}
-                    <a href="#" class="contact-item {% if d.name == recipient %}active{% endif %}" data-user="{{ d.name }}">
-                        <div class="mini-avatar">
-                            {% if d.avatar %}
-                                <img src="{{ d.avatar }}">
-                            {% else %}
-                                {{ d.name[0] }}
-                            {% endif %}
-                        </div>
-                        <span>{{ d.name }}</span>
-                    </a>
-                {% endfor %}
-            {% else %}
-                <div style="color:#94a3b8;">Нет диалогов</div>
-            {% endif %}
+            <div id="dialogs-list">
+                {% if dialogs %}
+                    {% for d in dialogs %}
+                        <a href="#" class="contact-item {% if d.name == recipient %}active{% endif %}" data-user="{{ d.name }}">
+                            <div class="mini-avatar">
+                                {% if d.avatar %}
+                                    <img src="{{ d.avatar }}">
+                                {% else %}
+                                    {{ d.name[0] }}
+                                {% endif %}
+                            </div>
+                            <span>{{ d.name }}</span>
+                        </a>
+                    {% endfor %}
+                {% else %}
+                    <div style="color:#94a3b8;">Нет диалогов</div>
+                {% endif %}
+            </div>
         </aside>
         <main class="chat-area">
             <header class="chat-header">
                 {% if recipient %}
                     <div class="chat-title">
-                        <div class="header-avatar">
+                        <div class="header-avatar" id="recipient-avatar-container">
                             {% if recipient_avatar %}
                                 <img src="{{ recipient_avatar }}">
                             {% else %}
                                 {{ recipient[0] }}
                             {% endif %}
                         </div>
-                        <div>Чат с <strong>{{ recipient }}</strong></div>
+                        <div>Чат с <strong id="recipient-name">{{ recipient }}</strong></div>
                     </div>
 
                     <form action="/delete_chat" method="post" class="delete-chat-form">
@@ -64,8 +65,7 @@
                 {% endif %}
             </header>
 
-            <div class="chat-messages" id="chat-box"
-                 data-last-id="{{ history[-1].id if history else 0 }}">
+            <div class="chat-messages" id="chat-box">
                 {% for msg in history %}
                     <div class="msg {% if msg.sender == user %}sent{% else %}received{% endif %}" data-msg-id="{{ msg.id }}">
                         <div class="msg-avatar">
@@ -75,12 +75,9 @@
                                 {{ msg.sender[0] }}
                             {% endif %}
                         </div>
-
                         <div class="msg-body">
                             <div class="msg-content">
                                 <span class="text">{{ msg.text }}</span>
-
-                                {# Троеточие ТОЛЬКО в своих сообщениях #}
                                 {% if msg.sender == user %}
                                 <div class="msg-dropdown">
                                     <button type="button" class="msg-menu-btn">⋮</button>
@@ -91,23 +88,21 @@
                                            data-recipient="{{ recipient }}">
                                             Изменить
                                         </a>
-                                        <form action="/delete_message" method="post" class="delete-message-form">
-                                            <input type="hidden" name="message_id" value="{{ msg.id }}">
-                                            <input type="hidden" name="recipient" value="{{ recipient }}">
-                                            <button type="submit">Удалить</button>
-                                        </form>
+                                        <a href="#" class="delete-msg-btn"
+                                           data-id="{{ msg.id }}"
+                                           data-recipient="{{ recipient }}">
+                                            Удалить
+                                        </a>
                                     </div>
                                 </div>
                                 {% endif %}
                             </div>
-
                             <div class="time">{{ msg.timestamp }}</div>
                         </div>
                     </div>
                 {% endfor %}
             </div>
 
-            <!-- INPUT -->
             {% if recipient %}
             <div class="input-area" id="input-area">
                 <input type="hidden" id="recipient" value="{{ recipient }}">
@@ -122,315 +117,326 @@
 <script>
 (function() {
     let ws = null;
-    let currentRecipient = null;
-    let sending = false;
+    let currentRecipient = "{{ recipient }}";
+    let currentUser = "{{ user }}";
     let reconnectAttempts = 0;
-    let reconnectTimeout = null;
+    let messageElements = new Map(); // id сообщения -> DOM элемент
+
+    // Функции для работы с DOM
+    function scrollDown() {
+        const box = document.getElementById("chat-box");
+        if (box) box.scrollTop = box.scrollHeight;
+    }
 
     function escapeHtml(text) {
-        var div = document.createElement("div");
+        const div = document.createElement("div");
         div.appendChild(document.createTextNode(text));
         return div.innerHTML;
     }
 
-    function scrollDown() {
-        var box = document.getElementById("chat-box");
-        if (box) box.scrollTop = box.scrollHeight;
-    }
-
-    // Установка WebSocket соединения
-    function connectWebSocket() {
-        if (ws && ws.readyState === WebSocket.OPEN) return;
-        
-        const username = "{{ user }}";  // текущий пользователь из шаблона
-        
-        try {
-            ws = new WebSocket(`ws://${window.location.host}/ws/${encodeURIComponent(username)}`);
-            
-            ws.onopen = function() {
-                console.log("WebSocket connected");
-                reconnectAttempts = 0;
-                if (reconnectTimeout) {
-                    clearTimeout(reconnectTimeout);
-                    reconnectTimeout = null;
-                }
-            };
-            
-            ws.onmessage = function(event) {
-                try {
-                    const data = JSON.parse(event.data);
-                    handleWebSocketMessage(data);
-                } catch (e) {
-                    if (event.data === "pong") return;
-                    console.error("Failed to parse WebSocket message:", e);
-                }
-            };
-            
-            ws.onclose = function() {
-                console.log("WebSocket disconnected, reconnecting...");
-                ws = null;
-                reconnectTimeout = setTimeout(function() {
-                    reconnectAttempts++;
-                    if (reconnectAttempts < 10) {
-                        connectWebSocket();
-                    }
-                }, 3000);
-            };
-            
-            ws.onerror = function(error) {
-                console.error("WebSocket error:", error);
-            };
-        } catch (e) {
-            console.error("WebSocket connection failed:", e);
-        }
-    }
-    
-    // Обработка входящих WebSocket сообщений
-    function handleWebSocketMessage(data) {
-        if (data.type === "new_message") {
-            // Получаем данные сообщения
-            const message = data;
-            
-            // Проверяем, относится ли сообщение к текущему чату
-            const isFromCurrentChat = (message.sender === currentRecipient) || 
-                                      (data.recipient === currentRecipient && message.sender === "{{ user }}");
-            
-            if (isFromCurrentChat) {
-                // Добавляем сообщение в чат
-                addMessageToChat(message);
-            } else if (currentRecipient && message.sender === "{{ user }}" && data.recipient === currentRecipient) {
-                // Это наше отправленное сообщение
-                addMessageToChat(message);
-            }
-        } else if (data.type === "message_deleted") {
-            // Удаляем сообщение
-            const msgElement = document.querySelector(`.msg[data-msg-id="${data.message_id}"]`);
-            if (msgElement) msgElement.remove();
-        } else if (data.type === "message_edited") {
-            // Обновляем текст сообщения
-            const msgElement = document.querySelector(`.msg[data-msg-id="${data.message_id}"]`);
-            if (msgElement) {
-                const textSpan = msgElement.querySelector('.text');
-                if (textSpan) textSpan.textContent = data.new_text;
-            }
-        }
-    }
-    
-    // Добавление сообщения в чат
-    function addMessageToChat(msg) {
-        const box = document.getElementById("chat-box");
-        if (!box) return;
-        
-        const isMyMessage = (msg.sender === "{{ user }}");
-        
-        var div = document.createElement("div");
-        div.className = "msg " + (isMyMessage ? "sent" : "received");
+    // Создание элемента сообщения
+    function createMessageElement(msg, isOwn) {
+        const div = document.createElement("div");
+        div.className = `msg ${isOwn ? 'sent' : 'received'}`;
         div.setAttribute("data-msg-id", msg.id);
-        
-        var dropdownHTML = "";
-        if (isMyMessage) {
-            dropdownHTML = `
-                <div class="msg-dropdown">
-                    <button type="button" class="msg-menu-btn">⋮</button>
-                    <div class="msg-dropdown-content">
-                        <a href="#" class="edit-msg-btn"
-                           data-id="${msg.id}"
-                           data-text="${escapeHtml(msg.text)}"
-                           data-recipient="${currentRecipient}">Изменить</a>
-                        <form action="/delete_message" method="post" class="delete-message-form">
-                            <input type="hidden" name="message_id" value="${msg.id}">
-                            <input type="hidden" name="recipient" value="${currentRecipient}">
-                            <button type="submit">Удалить</button>
-                        </form>
-                    </div>
-                </div>`;
-        }
-        
+
+        const dropdownHTML = isOwn ? `
+            <div class="msg-dropdown">
+                <button type="button" class="msg-menu-btn">⋮</button>
+                <div class="msg-dropdown-content">
+                    <a href="#" class="edit-msg-btn"
+                       data-id="${msg.id}"
+                       data-text="${escapeHtml(msg.text)}"
+                       data-recipient="${currentRecipient}">Изменить</a>
+                    <a href="#" class="delete-msg-btn"
+                       data-id="${msg.id}"
+                       data-recipient="${currentRecipient}">Удалить</a>
+                </div>
+            </div>
+        ` : '';
+
         div.innerHTML = `
             <div class="msg-avatar">
-                ${msg.avatar ? '<img src="' + msg.avatar + '">' : msg.sender[0]}
+                ${msg.avatar ? '<img src="' + msg.avatar + '">' : (msg.sender ? msg.sender[0] : '?')}
             </div>
             <div class="msg-body">
                 <div class="msg-content">
                     <span class="text">${escapeHtml(msg.text)}</span>
                     ${dropdownHTML}
                 </div>
-                <div class="time">${msg.timestamp || "только что"}</div>
+                <div class="time">${msg.timestamp || 'только что'}</div>
             </div>
         `;
-        
-        box.appendChild(div);
-        
-        // Обновляем last-id
-        const currentMaxId = parseInt(box.getAttribute("data-last-id")) || 0;
-        if (msg.id > currentMaxId) {
-            box.setAttribute("data-last-id", msg.id);
-        }
-        
-        // Прокручиваем вниз если был внизу
-        if (box.scrollTop + box.clientHeight >= box.scrollHeight - 50) {
-            scrollDown();
-        }
-        
-        // Перепривязываем обработчики для новых элементов
-        attachMessageHandlers();
+
+        return div;
     }
-    
-    // Отправка сообщения через WebSocket (если нужно) или HTTP
-    async function sendMessage() {
-        if (sending) return;
+
+    // Добавление нового сообщения в чат
+    function addMessageToChat(msg) {
+        const chatBox = document.getElementById("chat-box");
+        if (!chatBox) return;
         
-        var inputEl = document.getElementById("msg-input");
-        var sendBtn = document.getElementById("send-btn");
-        var recipientEl = document.getElementById("recipient");
+        const isOwn = msg.sender === currentUser;
+        const msgElement = createMessageElement(msg, isOwn);
+        chatBox.appendChild(msgElement);
+        messageElements.set(msg.id, msgElement);
         
-        if (!inputEl || !recipientEl) return;
+        // Прикрепляем обработчики для нового сообщения
+        attachMessageHandlers(msgElement, msg);
         
-        var text = inputEl.value.trim();
-        var recipient = recipientEl.value;
-        
-        if (!text) return;
-        
-        sending = true;
-        inputEl.disabled = true;
-        if (sendBtn) sendBtn.disabled = true;
-        
-        var form = new URLSearchParams();
-        form.append("text", text);
-        form.append("recipient", recipient);
-        
-        try {
-            var res = await fetch("/send_message", {
-                method: "POST",
-                headers: {"Content-Type": "application/x-www-form-urlencoded"},
-                body: form
-            });
-            
-            if (res.ok) {
-                inputEl.value = "";
-                inputEl.focus();
-                // Сообщение добавится через WebSocket
+        scrollDown();
+    }
+
+    // Обновление текста сообщения
+    function updateMessageText(messageId, newText) {
+        const msgElement = messageElements.get(messageId);
+        if (msgElement) {
+            const textSpan = msgElement.querySelector('.text');
+            if (textSpan) {
+                textSpan.textContent = newText;
             }
-        } finally {
-            sending = false;
-            inputEl.disabled = false;
-            if (sendBtn) sendBtn.disabled = false;
+            // Обновляем data-text у кнопки редактирования
+            const editBtn = msgElement.querySelector('.edit-msg-btn');
+            if (editBtn) {
+                editBtn.dataset.text = newText;
+            }
         }
     }
-    
-    // Загрузка чата при выборе собеседника
+
+    // Удаление сообщения
+    function removeMessageElement(messageId) {
+        const msgElement = messageElements.get(messageId);
+        if (msgElement) {
+            msgElement.remove();
+            messageElements.delete(messageId);
+        }
+    }
+
+    // Прикрепление обработчиков к сообщению
+    function attachMessageHandlers(msgElement, msg) {
+        // Меню (⋮)
+        const menuBtn = msgElement.querySelector('.msg-menu-btn');
+        if (menuBtn) {
+            menuBtn.onclick = function(e) {
+                e.stopPropagation();
+                const menu = this.nextElementSibling;
+                if (menu) {
+                    document.querySelectorAll('.msg-dropdown-content.show').forEach(m => {
+                        if (m !== menu) m.classList.remove('show');
+                    });
+                    menu.classList.toggle('show');
+                }
+            };
+        }
+
+        // Кнопка редактирования
+        const editBtn = msgElement.querySelector('.edit-msg-btn');
+        if (editBtn) {
+            editBtn.onclick = async function(e) {
+                e.preventDefault();
+                const id = parseInt(this.dataset.id);
+                const oldText = this.dataset.text;
+                const recipient = this.dataset.recipient;
+                
+                const newText = prompt("Редактировать:", oldText);
+                if (!newText || newText === oldText) return;
+                
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: "edit_message",
+                        message_id: id,
+                        new_text: newText,
+                        recipient: recipient
+                    }));
+                }
+            };
+        }
+
+        // Кнопка удаления
+        const deleteBtn = msgElement.querySelector('.delete-msg-btn');
+        if (deleteBtn) {
+            deleteBtn.onclick = async function(e) {
+                e.preventDefault();
+                const id = parseInt(this.dataset.id);
+                const recipient = this.dataset.recipient;
+                
+                if (confirm("Удалить сообщение?")) {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: "delete_message",
+                            message_id: id,
+                            recipient: recipient
+                        }));
+                    }
+                }
+            };
+        }
+    }
+
+    // WebSocket соединение
+    function connectWebSocket() {
+        const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws?username=${encodeURIComponent(currentUser)}`;
+        
+        ws = new WebSocket(wsUrl);
+        
+        ws.onopen = function() {
+            console.log("WebSocket connected");
+            reconnectAttempts = 0;
+        };
+        
+        ws.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                console.log("Received:", data);
+                
+                if (data.type === "new_message") {
+                    // Проверяем, относится ли сообщение к текущему чату
+                    if (data.sender === currentRecipient || data.sender === currentUser) {
+                        addMessageToChat(data);
+                    }
+                } else if (data.type === "edit_message") {
+                    if (data.sender === currentUser || data.sender === currentRecipient) {
+                        updateMessageText(data.id, data.new_text);
+                    }
+                } else if (data.type === "delete_message") {
+                    if (data.sender === currentUser || data.sender === currentRecipient) {
+                        removeMessageElement(data.id);
+                    }
+                }
+            } catch (e) {
+                console.error("Error parsing message:", e);
+            }
+        };
+        
+        ws.onclose = function() {
+            console.log("WebSocket disconnected, reconnecting...");
+            setTimeout(() => {
+                if (reconnectAttempts < 10) {
+                    reconnectAttempts++;
+                    connectWebSocket();
+                }
+            }, 3000);
+        };
+        
+        ws.onerror = function(error) {
+            console.error("WebSocket error:", error);
+        };
+    }
+
+    // Отправка сообщения через WebSocket
+    function sendMessage() {
+        const inputEl = document.getElementById("msg-input");
+        const sendBtn = document.getElementById("send-btn");
+        
+        if (!inputEl) return;
+        const text = inputEl.value.trim();
+        if (!text || !currentRecipient) return;
+        
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: "message",
+                recipient: currentRecipient,
+                text: text
+            }));
+            inputEl.value = "";
+            inputEl.focus();
+        } else {
+            alert("Нет соединения с сервером");
+        }
+    }
+
+    // Загрузка чата при смене собеседника
     async function loadChat(recipient) {
+        if (recipient === currentRecipient) return;
+        
         currentRecipient = recipient;
         
-        var res = await fetch('/message?recipient=' + encodeURIComponent(recipient), {
+        // Обновляем скрытое поле
+        const recipientInput = document.getElementById("recipient");
+        if (recipientInput) recipientInput.value = recipient;
+        
+        // Обновляем заголовок
+        const recipientNameSpan = document.getElementById("recipient-name");
+        if (recipientNameSpan) recipientNameSpan.textContent = recipient;
+        
+        // Загружаем историю через fetch
+        const res = await fetch('/message?recipient=' + encodeURIComponent(recipient), {
             headers: { "X-Partial": "1" }
         });
-        var html = await res.text();
-        var doc = new DOMParser().parseFromString(html, "text/html");
+        const html = await res.text();
+        const doc = new DOMParser().parseFromString(html, "text/html");
         
-        var newChatArea = doc.querySelector(".chat-area");
-        if (!newChatArea) return;
+        const newMessages = doc.querySelector(".chat-messages");
+        const chatBox = document.getElementById("chat-box");
         
-        var newHeader = newChatArea.querySelector(".chat-header");
-        var currentHeader = document.querySelector(".chat-header");
-        if (newHeader && currentHeader) {
-            currentHeader.innerHTML = newHeader.innerHTML;
-        }
-        
-        var newMessages = newChatArea.querySelector(".chat-messages");
-        var chatBox = document.getElementById("chat-box");
         if (newMessages && chatBox) {
             chatBox.innerHTML = newMessages.innerHTML;
-            var lastMsg = newMessages.querySelector(".msg:last-child");
-            if (lastMsg) {
-                var lastId = lastMsg.getAttribute("data-msg-id");
-                chatBox.setAttribute("data-last-id", lastId || "0");
-            } else {
-                chatBox.setAttribute("data-last-id", "0");
-            }
+            messageElements.clear();
+            
+            // Пересоздаём карту сообщений и прикрепляем обработчики
+            document.querySelectorAll("#chat-box .msg").forEach(el => {
+                const msgId = parseInt(el.getAttribute("data-msg-id"));
+                if (msgId) {
+                    messageElements.set(msgId, el);
+                    // Извлекаем данные сообщения
+                    const textSpan = el.querySelector('.text');
+                    const sender = el.classList.contains('sent') ? currentUser : recipient;
+                    attachMessageHandlers(el, {
+                        id: msgId,
+                        sender: sender,
+                        text: textSpan ? textSpan.textContent : ''
+                    });
+                }
+            });
         }
         
-        var recipientInput = document.getElementById("recipient");
-        if (recipientInput) {
-            recipientInput.value = recipient;
-        }
-        
-        var inputArea = document.getElementById("input-area");
-        if (inputArea) {
-            inputArea.style.display = "flex";
-        } else {
-            var chatArea = document.querySelector(".chat-area");
-            if (chatArea) {
-                var newInputArea = document.createElement("div");
-                newInputArea.className = "input-area";
-                newInputArea.id = "input-area";
-                newInputArea.innerHTML = '<input type="hidden" id="recipient" value="' + recipient + '"><input type="text" id="msg-input" placeholder="Сообщение..." autocomplete="off"><button id="send-btn" type="button">Отправить</button>';
-                chatArea.appendChild(newInputArea);
-            }
-        }
-        
-        document.querySelectorAll(".contact-item").forEach(function(item) {
+        // Обновляем активный элемент в списке диалогов
+        document.querySelectorAll(".contact-item").forEach(item => {
             item.classList.remove("active");
             if (item.dataset.user === recipient) {
                 item.classList.add("active");
             }
         });
         
-        attachHandlers();
+        // Показываем input-area если скрыта
+        const inputArea = document.getElementById("input-area");
+        if (inputArea) {
+            inputArea.style.display = "flex";
+        }
+        
         scrollDown();
     }
-    
-    // Привязка обработчиков для сообщений (редактирование/удаление)
-    function attachMessageHandlers() {
-        document.querySelectorAll(".msg-menu-btn").forEach(function(btn) {
-            btn.onclick = function(e) {
-                e.stopPropagation();
-                var menu = btn.nextElementSibling;
-                if (menu) {
-                    document.querySelectorAll('.msg-dropdown-content.show').forEach(function(m) {
-                        if (m !== menu) m.classList.remove('show');
-                    });
-                    menu.classList.toggle("show");
-                }
-            };
+
+    // Удаление чата
+    async function deleteChat(recipient) {
+        if (!confirm("Удалить чат с " + recipient + "?")) return;
+        
+        const form = new URLSearchParams();
+        form.append("recipient", recipient);
+        
+        const res = await fetch("/delete_chat", {
+            method: "POST",
+            headers: {"Content-Type": "application/x-www-form-urlencoded"},
+            body: form
         });
         
-        document.addEventListener('click', function(e) {
-            if (!e.target.closest('.msg-dropdown')) {
-                document.querySelectorAll('.msg-dropdown-content.show').forEach(function(menu) {
-                    menu.classList.remove('show');
-                });
-            }
-        });
-        
-        document.querySelectorAll(".edit-msg-btn").forEach(function(btn) {
-            btn.onclick = async function(e) {
-                e.preventDefault();
-                var id = btn.dataset.id;
-                var oldText = btn.dataset.text;
-                var recipient = btn.dataset.recipient;
-                await editMessage(id, oldText, recipient);
-            };
-        });
-        
-        document.querySelectorAll(".delete-message-form").forEach(function(form) {
-            form.onsubmit = async function(e) {
-                e.preventDefault();
-                var messageId = form.querySelector('input[name="message_id"]').value;
-                var recipient = form.querySelector('input[name="recipient"]').value;
-                await deleteMessage(messageId, recipient);
-            };
-        });
+        if (res.ok) {
+            window.location.href = "/message";
+        }
     }
-    
-    // Основная привязка обработчиков
-    function attachHandlers() {
-        var newBtn = document.getElementById("send-btn");
-        var newInput = document.getElementById("msg-input");
+
+    // Прикрепление обработчиков событий
+    function attachGlobalHandlers() {
+        // Отправка сообщения
+        const sendBtn = document.getElementById("send-btn");
+        const msgInput = document.getElementById("msg-input");
         
-        if (newBtn && newInput) {
-            newBtn.onclick = sendMessage;
-            newInput.onkeydown = function(e) {
+        if (sendBtn) {
+            sendBtn.onclick = sendMessage;
+        }
+        if (msgInput) {
+            msgInput.onkeydown = function(e) {
                 if (e.key === "Enter") {
                     e.preventDefault();
                     sendMessage();
@@ -438,85 +444,54 @@
             };
         }
         
-        document.querySelectorAll(".contact-item").forEach(function(el) {
+        // Клик по контакту в списке диалогов
+        document.querySelectorAll(".contact-item").forEach(el => {
             el.onclick = async function(e) {
                 e.preventDefault();
-                await loadChat(el.dataset.user);
+                await loadChat(this.dataset.user);
             };
         });
         
-        attachMessageHandlers();
-        
-        var deleteChatForm = document.querySelector(".delete-chat-form");
+        // Удаление чата
+        const deleteChatForm = document.querySelector(".delete-chat-form");
         if (deleteChatForm) {
             deleteChatForm.onsubmit = async function(e) {
                 e.preventDefault();
-                var recipient = deleteChatForm.querySelector('input[name="recipient"]').value;
+                const recipient = this.querySelector('input[name="recipient"]').value;
                 await deleteChat(recipient);
             };
         }
-    }
-    
-    async function deleteMessage(messageId, recipient) {
-        if (!confirm("Удалить сообщение?")) return;
-        var form = new URLSearchParams();
-        form.append("message_id", messageId);
-        form.append("recipient", recipient);
         
-        var res = await fetch("/delete_message", {
-            method: "POST",
-            headers: {"Content-Type": "application/x-www-form-urlencoded"},
-            body: form
-        });
-        if (res.ok) {
-            var msgElement = document.querySelector(`.msg[data-msg-id="${messageId}"]`);
-            if (msgElement) msgElement.remove();
-        }
-    }
-    
-    async function editMessage(messageId, oldText, recipient) {
-        var newText = prompt("Редактировать:", oldText);
-        if (!newText || newText === oldText) return;
-        
-        var form = new URLSearchParams();
-        form.append("message_id", messageId);
-        form.append("new_text", newText);
-        form.append("recipient", recipient);
-        
-        var res = await fetch("/edit_message", {
-            method: "POST",
-            headers: {"Content-Type": "application/x-www-form-urlencoded"},
-            body: form
-        });
-        if (res.ok) {
-            var msgElement = document.querySelector(`.msg[data-msg-id="${messageId}"]`);
-            if (msgElement) {
-                var textSpan = msgElement.querySelector('.text');
-                if (textSpan) textSpan.textContent = newText;
+        // Закрытие меню при клике вне
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.msg-dropdown')) {
+                document.querySelectorAll('.msg-dropdown-content.show').forEach(menu => {
+                    menu.classList.remove('show');
+                });
             }
-        }
-    }
-    
-    async function deleteChat(recipient) {
-        if (!confirm("Удалить чат с " + recipient + "?")) return;
-        var form = new URLSearchParams();
-        form.append("recipient", recipient);
-        
-        var res = await fetch("/delete_chat", {
-            method: "POST",
-            headers: {"Content-Type": "application/x-www-form-urlencoded"},
-            body: form
         });
-        if (res.ok) {
-            window.location.href = "/message";
-        }
     }
     
     // Инициализация
     function init() {
-        attachHandlers();
+        // Прикрепляем обработчики к существующим сообщениям
+        document.querySelectorAll("#chat-box .msg").forEach(el => {
+            const msgId = parseInt(el.getAttribute("data-msg-id"));
+            if (msgId) {
+                messageElements.set(msgId, el);
+                const textSpan = el.querySelector('.text');
+                const isOwn = el.classList.contains('sent');
+                attachMessageHandlers(el, {
+                    id: msgId,
+                    sender: isOwn ? currentUser : currentRecipient,
+                    text: textSpan ? textSpan.textContent : ''
+                });
+            }
+        });
+        
+        attachGlobalHandlers();
+        connectWebSocket();
         scrollDown();
-        connectWebSocket();  // Подключаем WebSocket
     }
     
     init();
