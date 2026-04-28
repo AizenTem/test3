@@ -1,6 +1,6 @@
 /* static/style.css
-   Рабочая версия под запуск через backend, не под Live Server.
-   HTML-шаблоны Jinja не скрываются костылями, error-сообщения отображаются нормально.
+   Универсальные стили под твои шаблоны:
+   index / login / register / profile / chat
 */
 
 *,
@@ -12,22 +12,28 @@
 }
 
 :root {
-    --border-main: #1E2939;
-    --button-bg: #0F1522;
-    --panel-bg: #0A0E19;
-    --main-bg: #00030A;
-    --accent: #7C86FF;
-    --accent-bg: #151941;
-    --muted: #6A7282;
-    --green: #7C86FF;
-    --green-light: #67EA76;
-    --red: #DB2D2D;
-    --red-light: #F95454;
+    --bg: #00030a;
+    --panel: #0a0e19;
+    --panel-2: #0f1522;
+    --line: #1e2939;
+    --input: #050914;
 
-    --text-main: #F8FAFC;
-    --text-soft: #CBD5E1;
-    --text-muted: #94A3B8;
-    --input-bg: #050914;
+    --text: #f8fafc;
+    --text-2: #cbd5e1;
+    --muted: #94a3b8;
+
+    --accent: #7c86ff;
+    --accent-2: #151941;
+    --green: #7c86ff;
+    --green-2: #67ea76;
+
+    --red: #db2d2d;
+    --red-2: #f95454;
+
+    --shadow: 0 22px 60px rgba(0, 0, 0, 0.32);
+    --shadow-2: 0 26px 70px rgba(0, 0, 0, 0.45);
+    --radius: 22px;
+    --radius-lg: 24px;
 }
 
 html {
@@ -39,8 +45,8 @@ body {
     font-family: Arial, sans-serif;
     background:
         radial-gradient(circle at top, rgba(124, 134, 255, 0.08), transparent 34%),
-        var(--main-bg);
-    color: var(--text-main);
+        var(--bg);
+    color: var(--text);
 }
 
 a {
@@ -50,7 +56,7 @@ a {
 }
 
 a:hover {
-    color: var(--text-main);
+    color: var(--text);
 }
 
 button,
@@ -60,8 +66,8 @@ button,
     outline: none;
     cursor: pointer;
     display: inline-block;
-    background: var(--button-bg);
-    color: var(--text-main);
+    background: var(--panel-2);
+    color: var(--text);
     padding: 12px 18px;
     border-radius: 12px;
     font-size: 15px;
@@ -73,7 +79,7 @@ button,
 button:hover,
 .btn:hover,
 .btn-back:hover {
-    background: var(--accent-bg);
+    background: var(--accent-2);
     color: var(--accent);
     transform: translateY(-2px);
     box-shadow: 0 10px 22px rgba(124, 134, 255, 0.18);
@@ -87,9 +93,9 @@ button:active,
 
 input {
     width: 100%;
-    background: var(--input-bg);
-    color: var(--text-main);
-    border: 1px solid var(--border-main);
+    background: var(--input);
+    color: var(--text);
+    border: 1px solid var(--line);
     border-radius: 12px;
     padding: 13px 15px;
     font-size: 15px;
@@ -108,7 +114,7 @@ input:focus {
 
 input[type="file"] {
     padding: 11px;
-    color: var(--text-soft);
+    color: var(--text-2);
 }
 
 input[type="file"]::file-selector-button {
@@ -116,66 +122,63 @@ input[type="file"]::file-selector-button {
     margin-right: 12px;
     padding: 10px 12px;
     border-radius: 10px;
-    background: var(--accent-bg);
+    background: var(--accent-2);
     color: var(--accent);
     font-weight: 700;
     cursor: pointer;
 }
 
 /* =========================================================
-   Главная страница: index.html
+   Главная страница
    ========================================================= */
 
-body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:has(.page)) {
+body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) {
     display: flex;
     justify-content: center;
     align-items: center;
     flex-direction: column;
+    padding: 24px;
 }
 
-body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:has(.page)) > h1 {
+body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) > h1 {
     width: 360px;
-    background: var(--panel-bg);
-    border: 1px solid var(--border-main);
+    background: var(--panel);
+    border: 1px solid var(--line);
     border-bottom: none;
     border-radius: 22px 22px 0 0;
     padding: 38px 34px 18px;
     text-align: center;
     font-size: 34px;
     line-height: 1.15;
-    color: var(--text-main);
+    color: var(--text);
     animation: fadeInUp 0.45s ease;
 }
 
-body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:has(.page)) > a {
+body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) > a {
     width: 360px;
     display: block;
-    background: var(--panel-bg);
-    border-left: 1px solid var(--border-main);
-    border-right: 1px solid var(--border-main);
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
     padding: 0 34px 10px;
-    color: var(--text-main);
+    color: var(--text);
     text-align: center;
-    font-size: 15px;
+    font-size: 0;
     font-weight: 700;
     animation: fadeInUp 0.45s ease;
 }
 
-body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:has(.page)) > a:first-of-type {
+body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) > a:first-of-type {
     padding-top: 4px;
 }
 
-body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:has(.page)) > a:last-of-type {
-    border-bottom: 1px solid var(--border-main);
+body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) > a:last-of-type {
+    border-bottom: 1px solid var(--line);
     border-radius: 0 0 22px 22px;
     padding-bottom: 34px;
 }
 
-body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:has(.page)) > a {
-    font-size: 0;
-}
-
-body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:has(.page)) > a::before {
+body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) > a::before {
     display: block;
     padding: 14px;
     border-radius: 12px;
@@ -184,177 +187,99 @@ body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:h
     transition: 0.25s ease;
 }
 
-body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:has(.page)) > a[href="/register"]::before {
+body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) > a[href="/register"]::before {
     content: "Регистрация";
-    background: var(--button-bg);
-    color: var(--text-main);
+    background: var(--panel-2);
+    color: var(--text);
 }
 
-body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:has(.page)) > a[href="/login"]::before {
+body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) > a[href="/login"]::before {
     content: "Вход";
     background: var(--green);
     color: #061009;
 }
 
-body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:has(.page)) > a:hover::before {
+body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) > a:hover::before {
     transform: translateY(-2px);
 }
 
-body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:has(.page)) > a[href="/register"]:hover::before {
-    background: var(--accent-bg);
+body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) > a[href="/register"]:hover::before {
+    background: var(--accent-2);
     color: var(--accent);
     box-shadow: 0 10px 22px rgba(124, 134, 255, 0.18);
 }
 
-body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:has(.page)) > a[href="/login"]:hover::before {
-    background: var(--green-light);
+body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) > a[href="/login"]:hover::before {
+    background: var(--green-2);
     color: #061009;
     box-shadow: 0 10px 22px rgba(103, 234, 118, 0.18);
 }
 
 /* =========================================================
-   Вход: login.html
+   Вход / Регистрация
    ========================================================= */
 
-body:has(> form[action="/logins"]) {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    flex-direction: column;
-}
-
-body:has(> form[action="/logins"]) > h1 {
-    width: 380px;
-    background: var(--panel-bg);
-    border: 1px solid var(--border-main);
-    border-bottom: none;
-    border-radius: 22px 22px 0 0;
-    padding: 38px 34px 24px;
-    text-align: center;
-    font-size: 34px;
-    line-height: 1.15;
-    color: var(--text-main);
-    animation: fadeInUp 0.45s ease;
-}
-
-body:has(> form[action="/logins"]) > p {
-    width: 380px;
-    background: var(--panel-bg);
-    border-left: 1px solid var(--border-main);
-    border-right: 1px solid var(--border-main);
-    padding: 0 34px 14px;
-    color: var(--red-light) !important;
-    text-align: center;
-    font-size: 15px;
-    font-weight: 700;
-}
-
-body:has(> form[action="/logins"]) > form {
-    width: 380px;
-    background: var(--panel-bg);
-    border-left: 1px solid var(--border-main);
-    border-right: 1px solid var(--border-main);
-    padding: 0 34px 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-}
-
-body:has(> form[action="/logins"]) > form button {
-    width: 100%;
-    margin-top: 12px;
-}
-
-body:has(> form[action="/logins"]) > a[href="/register"] {
-    width: 380px;
-    display: block;
-    background: var(--panel-bg);
-    border: 1px solid var(--border-main);
-    border-top: none;
-    border-radius: 0 0 22px 22px;
-    padding: 0 34px 38px;
-    color: transparent;
-    font-size: 0;
-}
-
-body:has(> form[action="/logins"]) > a[href="/register"]::before {
-    content: "Регистрация";
-    display: block;
-    width: 100%;
-    background: var(--green);
-    color: #061009;
-    padding: 14px 18px;
-    border-radius: 12px;
-    font-size: 15px;
-    font-weight: 700;
-    text-align: center;
-    transition: 0.25s ease;
-}
-
-body:has(> form[action="/logins"]) > a[href="/register"]:hover::before {
-    background: var(--green-light);
-    transform: translateY(-2px);
-    box-shadow: 0 10px 22px rgba(103, 234, 118, 0.18);
-}
-
-/* =========================================================
-   Регистрация: registr.html
-   ========================================================= */
-
+body:has(> form[action="/logins"]),
 body:has(> form[action="/add_user"]) {
     display: flex;
     justify-content: center;
     align-items: center;
     flex-direction: column;
+    padding: 24px;
 }
 
+body:has(> form[action="/logins"]) > h1,
 body:has(> form[action="/add_user"]) > h1 {
     width: 380px;
-    background: var(--panel-bg);
-    border: 1px solid var(--border-main);
+    background: var(--panel);
+    border: 1px solid var(--line);
     border-bottom: none;
     border-radius: 22px 22px 0 0;
     padding: 38px 34px 24px;
     text-align: center;
     font-size: 34px;
     line-height: 1.15;
-    color: var(--text-main);
+    color: var(--text);
     animation: fadeInUp 0.45s ease;
 }
 
+body:has(> form[action="/logins"]) > p,
 body:has(> form[action="/add_user"]) > p {
     width: 380px;
-    background: var(--panel-bg);
-    border-left: 1px solid var(--border-main);
-    border-right: 1px solid var(--border-main);
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
     padding: 0 34px 14px;
-    color: var(--red-light) !important;
+    color: var(--red-2) !important;
     text-align: center;
     font-size: 15px;
     font-weight: 700;
 }
 
+body:has(> form[action="/logins"]) > form,
 body:has(> form[action="/add_user"]) > form {
     width: 380px;
-    background: var(--panel-bg);
-    border-left: 1px solid var(--border-main);
-    border-right: 1px solid var(--border-main);
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
     padding: 0 34px 18px;
     display: flex;
     flex-direction: column;
     gap: 15px;
 }
 
+body:has(> form[action="/logins"]) > form button,
 body:has(> form[action="/add_user"]) > form button {
     width: 100%;
     margin-top: 12px;
 }
 
+body:has(> form[action="/logins"]) > a[href="/register"],
 body:has(> form[action="/add_user"]) > a[href="/login"] {
     width: 380px;
     display: block;
-    background: var(--panel-bg);
-    border: 1px solid var(--border-main);
+    background: var(--panel);
+    border: 1px solid var(--line);
     border-top: none;
     border-radius: 0 0 22px 22px;
     padding: 0 34px 38px;
@@ -362,12 +287,10 @@ body:has(> form[action="/add_user"]) > a[href="/login"] {
     font-size: 0;
 }
 
+body:has(> form[action="/logins"]) > a[href="/register"]::before,
 body:has(> form[action="/add_user"]) > a[href="/login"]::before {
-    content: "Войти";
     display: block;
     width: 100%;
-    background: var(--green);
-    color: #061009;
     padding: 14px 18px;
     border-radius: 12px;
     font-size: 15px;
@@ -376,20 +299,33 @@ body:has(> form[action="/add_user"]) > a[href="/login"]::before {
     transition: 0.25s ease;
 }
 
+body:has(> form[action="/logins"]) > a[href="/register"]::before {
+    content: "Регистрация";
+    background: var(--green);
+    color: #061009;
+}
+
+body:has(> form[action="/add_user"]) > a[href="/login"]::before {
+    content: "Войти";
+    background: var(--green);
+    color: #061009;
+}
+
+body:has(> form[action="/logins"]) > a[href="/register"]:hover::before,
 body:has(> form[action="/add_user"]) > a[href="/login"]:hover::before {
-    background: var(--green-light);
+    background: var(--green-2);
     transform: translateY(-2px);
     box-shadow: 0 10px 22px rgba(103, 234, 118, 0.18);
 }
 
 /* =========================================================
-   Профиль: mypage.html
+   Профиль
    ========================================================= */
 
-body:has(.top):has(.card) {
+body:has(.page):has(.top):has(.card) {
     background:
         radial-gradient(circle at top left, rgba(124, 134, 255, 0.08), transparent 28%),
-        var(--main-bg);
+        var(--bg);
 }
 
 .page {
@@ -402,12 +338,12 @@ body:has(.top):has(.card) {
     display: flex;
     align-items: center;
     gap: 22px;
-    background: var(--panel-bg);
-    border: 1px solid var(--border-main);
-    border-radius: 24px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
     padding: 24px;
     margin-bottom: 22px;
-    box-shadow: 0 22px 60px rgba(0, 0, 0, 0.32);
+    box-shadow: var(--shadow);
     animation: fadeInUp 0.45s ease;
 }
 
@@ -418,7 +354,7 @@ body:has(.top):has(.card) {
     flex: 0 0 auto;
     display: grid;
     place-items: center;
-    background: var(--accent-bg);
+    background: var(--accent-2);
     color: var(--accent);
     border: 1px solid rgba(124, 134, 255, 0.35);
     overflow: hidden;
@@ -452,30 +388,33 @@ body:has(.top):has(.card) {
 }
 
 .danger,
-.btn.danger {
+.btn.danger,
+.btn-delete {
     background: var(--red);
     color: white;
 }
 
 .danger:hover,
-.btn.danger:hover {
-    background: var(--red-light);
+.btn.danger:hover,
+.btn-delete:hover {
+    background: var(--red-2);
     color: white;
     box-shadow: 0 10px 22px rgba(249, 84, 84, 0.18);
 }
 
 .card {
-    background: var(--panel-bg);
-    border: 1px solid var(--border-main);
-    border-radius: 22px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
     padding: 22px;
     margin-bottom: 20px;
     animation: fadeInUp 0.45s ease;
 }
 
 .card h3 {
-    color: var(--text-main);
+    color: var(--text);
     font-size: 22px;
+    margin-top: 0 !important;
     margin-bottom: 14px !important;
 }
 
@@ -491,8 +430,8 @@ body:has(.top):has(.card) {
 
 .photo {
     width: 220px;
-    background: var(--input-bg);
-    border: 1px solid var(--border-main);
+    background: var(--input);
+    border: 1px solid var(--line);
     border-radius: 18px;
     padding: 12px;
 }
@@ -503,7 +442,7 @@ body:has(.top):has(.card) {
     display: block;
     object-fit: cover;
     border-radius: 14px;
-    border: 1px solid var(--border-main);
+    border: 1px solid var(--line);
     margin-bottom: 12px;
 }
 
@@ -512,7 +451,7 @@ body:has(.top):has(.card) {
 }
 
 /* =========================================================
-   Чат: message.html
+   Чат
    ========================================================= */
 
 body:has(.chat-wrapper) .page {
@@ -536,8 +475,8 @@ body:has(.chat-wrapper) .page {
 
 .start-chat-form {
     flex: 1;
-    background: var(--panel-bg);
-    border: 1px solid var(--border-main);
+    background: var(--panel);
+    border: 1px solid var(--line);
     border-radius: 18px;
     padding: 12px;
     display: flex;
@@ -559,16 +498,16 @@ body:has(.chat-wrapper) .page {
     margin: 0 auto;
     display: grid;
     grid-template-columns: 300px minmax(0, 1fr);
-    background: var(--main-bg);
-    border: 1px solid var(--border-main);
+    background: var(--bg);
+    border: 1px solid var(--line);
     border-radius: 24px;
     overflow: hidden;
-    box-shadow: 0 26px 70px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--shadow-2);
 }
 
 .sidebar {
-    background: var(--panel-bg);
-    border-right: 1px solid var(--border-main);
+    background: var(--panel);
+    border-right: 1px solid var(--line);
     padding: 18px;
     overflow-y: auto;
 }
@@ -584,7 +523,7 @@ body:has(.chat-wrapper) .page {
     display: flex;
     align-items: center;
     gap: 12px;
-    color: var(--text-main);
+    color: var(--text);
     padding: 12px;
     border-radius: 16px;
     margin-bottom: 8px;
@@ -592,12 +531,12 @@ body:has(.chat-wrapper) .page {
 }
 
 .contact-item:hover {
-    background: var(--button-bg);
+    background: var(--panel-2);
     color: var(--accent);
 }
 
 .contact-item.active {
-    background: var(--accent-bg);
+    background: var(--accent-2);
     color: var(--accent);
     border: 1px solid rgba(124, 134, 255, 0.4);
 }
@@ -608,19 +547,28 @@ body:has(.chat-wrapper) .page {
     border-radius: 50%;
 }
 
+.contact-item span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .chat-area {
     min-width: 0;
     display: flex;
     flex-direction: column;
     background:
         radial-gradient(circle at center, rgba(124, 134, 255, 0.06), transparent 35%),
-        var(--main-bg);
+        var(--bg);
+    height: 100%;               /* Добавлено */
+    overflow: hidden;           /* Добавлено */
 }
 
 .chat-header {
     min-height: 76px;
     padding: 18px 22px;
-    border-bottom: 1px solid var(--border-main);
+    border-bottom: 1px solid var(--line);
     background: rgba(10, 14, 25, 0.9);
     display: flex;
     align-items: center;
@@ -632,7 +580,7 @@ body:has(.chat-wrapper) .page {
     display: flex;
     align-items: center;
     gap: 12px;
-    color: var(--text-main);
+    color: var(--text);
     font-size: 18px;
 }
 
@@ -643,15 +591,7 @@ body:has(.chat-wrapper) .page {
 }
 
 .btn-delete {
-    background: var(--red);
-    color: white;
     white-space: nowrap;
-}
-
-.btn-delete:hover {
-    background: var(--red-light);
-    color: white;
-    box-shadow: 0 10px 22px rgba(249, 84, 84, 0.18);
 }
 
 .chat-messages {
@@ -661,6 +601,7 @@ body:has(.chat-wrapper) .page {
     display: flex;
     flex-direction: column;
     gap: 14px;
+    min-height: 0;              /* КРИТИЧНО: позволяет flex-элементу сжиматься */
 }
 
 .msg {
@@ -692,9 +633,9 @@ body:has(.chat-wrapper) .page {
 
 .msg-content {
     position: relative;
-    background: var(--button-bg);
-    color: var(--text-main);
-    border: 1px solid var(--border-main);
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--line);
     border-radius: 18px;
     padding: 12px 42px 12px 14px;
     line-height: 1.45;
@@ -702,7 +643,7 @@ body:has(.chat-wrapper) .page {
 }
 
 .msg.sent .msg-content {
-    background: var(--accent-bg);
+    background: var(--accent-2);
     border-color: rgba(124, 134, 255, 0.4);
 }
 
@@ -749,8 +690,8 @@ body:has(.chat-wrapper) .page {
     top: 32px;
     right: 0;
     min-width: 145px;
-    background: var(--panel-bg);
-    border: 1px solid var(--border-main);
+    background: var(--panel);
+    border: 1px solid var(--line);
     border-radius: 14px;
     overflow: hidden;
     z-index: 10;
@@ -769,14 +710,14 @@ body:has(.chat-wrapper) .page {
     padding: 10px 12px;
     border-radius: 0;
     background: transparent;
-    color: var(--text-main);
+    color: var(--text);
     font-size: 14px;
     box-shadow: none;
 }
 
 .msg-dropdown-content a:hover,
 .msg-dropdown-content button:hover {
-    background: var(--accent-bg);
+    background: var(--accent-2);
     color: var(--accent);
     transform: none;
     box-shadow: none;
@@ -786,8 +727,9 @@ body:has(.chat-wrapper) .page {
     display: flex;
     gap: 12px;
     padding: 18px;
-    border-top: 1px solid var(--border-main);
-    background: var(--panel-bg);
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+    flex-shrink: 0;             /* Гарантирует, что поле ввода никогда не сожмётся */
 }
 
 .input-area input[type="text"] {
@@ -801,7 +743,7 @@ body:has(.chat-wrapper) .page {
 }
 
 .input-area button:hover {
-    background: var(--green-light);
+    background: var(--green-2);
     color: #061009;
     box-shadow: 0 10px 22px rgba(103, 234, 118, 0.18);
 }
@@ -828,7 +770,7 @@ body:has(.chat-wrapper) .page {
 
     .sidebar {
         border-right: none;
-        border-bottom: 1px solid var(--border-main);
+        border-bottom: 1px solid var(--line);
         max-height: 240px;
     }
 
@@ -843,8 +785,8 @@ body:has(.chat-wrapper) .page {
 }
 
 @media (max-width: 520px) {
-    body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:has(.page)) > h1,
-    body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(> form)):not(:has(.page)) > a,
+    body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) > h1,
+    body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) > a,
     body:has(> form[action="/logins"]) > h1,
     body:has(> form[action="/logins"]) > p,
     body:has(> form[action="/logins"]) > form,
