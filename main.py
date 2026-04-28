@@ -1,13 +1,49 @@
 import os
 import re
 import shutil
-from fastapi import FastAPI, File, Form, Request, UploadFile, HTTPException
+from typing import Dict, List
+import asyncio
+from fastapi import WebSocket, WebSocketDisconnect, FastAPI, File, Form, Request, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 import data
 from rich.traceback import install
+
+class ConnectionManager:
+    def __init__(self):
+        # user -> list of WebSocket connections (на случай нескольких вкладок)
+        self.active_connections: Dict[str, List[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, username: str):
+        await websocket.accept()
+        if username not in self.active_connections:
+            self.active_connections[username] = []
+        self.active_connections[username].append(websocket)
+
+    def disconnect(self, websocket: WebSocket, username: str):
+        if username in self.active_connections:
+            if websocket in self.active_connections[username]:
+                self.active_connections[username].remove(websocket)
+            if not self.active_connections[username]:
+                del self.active_connections[username]
+
+    async def send_personal_message(self, message: dict, username: str):
+        """Отправить сообщение конкретному пользователю"""
+        if username in self.active_connections:
+            for connection in self.active_connections[username]:
+                try:
+                    await connection.send_json(message)
+                except:
+                    pass  # клиент отключился
+
+    async def broadcast_to_pair(self, message: dict, user1: str, user2: str):
+        """Отправить сообщение обоим участникам чата"""
+        await self.send_personal_message(message, user1)
+        await self.send_personal_message(message, user2)
+
+manager = ConnectionManager()
 
 install(show_locals=True)
 
@@ -278,6 +314,22 @@ def messages_page(request: Request, recipient: str = "", reci: str = ""):
         return template
     return template
 
+@app.websocket("/ws/{username}")
+async def websocket_endpoint(websocket: WebSocket, username: str):
+    me = current_user_from_ws(websocket)  # нужно реализовать
+    if not me or me != username:  # защита — только свой username
+        await websocket.close()
+        return
+
+    await manager.connect(websocket, username)
+    try:
+        while True:
+            # Можно принимать ping/pong или другие сообщения
+            data = await websocket.receive_text()
+            # Пока ничего не делаем — отправка сообщений идёт через HTTP POST
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, username)
+
 # Получение актуального списка диалогов (для реального времени)
 @app.get("/get_dialogs")
 def get_dialogs(request: Request):
@@ -330,7 +382,7 @@ def start_chat(request: Request, contact_name: str = Form(...)):
     return RedirectResponse(url="/message?error=Пользователь+не+найден", status_code=303)
 
 @app.post("/send_message")
-def send_msg(request: Request, text: str = Form(...), recipient: str = Form(...)):
+async def send_msg(request: Request, text: str = Form(...), recipient: str = Form(...)):
     me = current_user(request)
     if not me:
         return RedirectResponse(url="/login", status_code=303)
@@ -340,8 +392,25 @@ def send_msg(request: Request, text: str = Form(...), recipient: str = Form(...)
     if not recipient_clean or not text_clean:
         return RedirectResponse(url=f"/message?recipient={recipient_clean}", status_code=303)
 
-    data.send_private_message(me, recipient_clean, text_clean)
+    # Сохраняем сообщение
+    message_id = data.send_private_message(me, recipient_clean, text_clean)  # предполагаю, что функция возвращает id
     data.create_chats(me, recipient_clean)
+
+    # Формируем данные для фронта
+    msg_data = {
+        "type": "new_message",
+        "id": message_id,
+        "sender": me,
+        "text": text_clean,
+        "timestamp": "только что",  # или нормальное время
+        "avatar": data.get_user_avatar(me),
+        "is_own": True
+    }
+
+    # Мгновенно отправляем обоим участникам
+    await manager.broadcast_to_pair(msg_data, me, recipient_clean)
+
+    # Для обратной совместимости (если кто-то открыл через обычный GET)
     return RedirectResponse(url=f"/message?recipient={recipient_clean}", status_code=303)
 
 @app.post("/edit_message")
