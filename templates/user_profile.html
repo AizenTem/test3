@@ -44,5 +44,27 @@
             </div>
         </div>
     </div>
+    <div id="viewer" class="viewer">
+    <span class="close">&times;</span>
+    <img class="viewer-img">
+</div>
+<script>
+const viewer = document.getElementById('viewer');
+const viewerImg = viewer.querySelector('.viewer-img');
+const closeBtn = viewer.querySelector('.close');
+
+document.querySelectorAll('.photo img').forEach(img => {
+    img.addEventListener('click', () => {
+        viewer.classList.add('show');
+        viewerImg.src = img.src;
+    });
+});
+
+closeBtn.onclick = () => viewer.classList.remove('show');
+
+viewer.onclick = (e) => {
+    if (e.target === viewer) viewer.classList.remove('show');
+};
+</script>
 </body>
 </html>
