@@ -124,20 +124,23 @@ def delete_photo(file_path):
         conn.commit()
 
 
-def create_chats(user1, user2):
-    with conn_mess() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT 1 FROM dialogs
-            WHERE (user1 = ? AND user2 = ?) OR (user1 = ? AND user2 = ?)
-        """, (user1, user2, user2, user1))
-        if cursor.fetchone():
-            return
-        cursor.execute(
-            "INSERT INTO dialogs (user1, user2) VALUES (?, ?)",
-            (user1, user2)
-        )
-        conn.commit()
+def create_chats(user1: str, user2: str):
+    """Создать запись о чате между пользователями."""
+    conn = get_db_connection()
+    try:
+        with conn:
+            # Проверяем, существует ли уже чат
+            cursor = conn.execute(
+                "SELECT 1 FROM chats WHERE (user1 = ? AND user2 = ?) OR (user1 = ? AND user2 = ?)",
+                (user1, user2, user2, user1)
+            )
+            if not cursor.fetchone():
+                conn.execute(
+                    "INSERT INTO chats (user1, user2) VALUES (?, ?)",
+                    (user1, user2)
+                )
+    finally:
+        conn.close()
 
 
 def get_dialog(username):
@@ -155,14 +158,36 @@ def get_dialog(username):
         return dialogs
 
 
-def send_private_message(sender, receiver, text):
-    with conn_mess() as conn:
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO messages (...) VALUES (...) RETURNING id")
-        message_id = cursor.fetchone()[0]
-        conn.commit()
-        return message_id)
-
+def send_private_message(sender: str, recipient: str, text: str) -> int:
+    """Отправить сообщение. Возвращает ID сообщения."""
+    conn = get_db_connection()
+    try:
+        with conn:
+            cursor = conn.execute(
+                "INSERT INTO messages (sender, recipient, text) VALUES (?, ?, ?)",
+                (sender, recipient, text)
+            )
+            message_id = cursor.lastrowid
+        return message_id  # ← Уберите лишнюю скобку, должно быть так
+    finally:
+        conn.close()
+def get_chat_history_after(user: str, recipient: str, after_id: int = 0):
+    """Получить сообщения после указанного ID."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            """SELECT id, sender, text, 
+                      strftime('%H:%M', timestamp) as timestamp,
+                      timestamp as iso_time
+               FROM messages 
+               WHERE ((sender = ? AND recipient = ?) OR (sender = ? AND recipient = ?))
+               AND id > ?
+               ORDER BY id ASC""",
+            (user, recipient, recipient, user, after_id)
+        )
+        return cursor.fetchall()
+    finally:
+        conn.close()
 def get_chat_history(user1, user2):
     with conn_mess() as conn:
         cursor = conn.cursor()
