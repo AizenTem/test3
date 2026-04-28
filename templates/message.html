@@ -14,9 +14,9 @@
     <div class="top-bar">
         <a href="/success" class="btn-back">← Назад</a>
 
-        <!-- Форма теперь отправляется обычным POST, без AJAX -->
-        <form action="/start_chat" method="post" class="start-chat-form">
-            <input type="text" name="contact_name" placeholder="Найти пользователя..." required maxlength="20">
+        <!-- Форма отправляется через AJAX -->
+        <form id="start-chat-form" class="start-chat-form">
+            <input type="text" id="contact-name" placeholder="Найти пользователя..." required maxlength="20">
             <button type="submit">Начать чат</button>
         </form>
     </div>
@@ -101,7 +101,6 @@
                                 {% endif %}
                             </div>
 
-                            <!-- Время сообщения уже в ISO-формате, отображаем через JS -->
                             <time class="time" datetime="{{ msg.timestamp }}"></time>
                         </div>
                     </div>
@@ -121,9 +120,9 @@
 
 <script>
 (function() {
-    // ---------- НАСТРОЙКИ ИНТЕРВАЛОВ ----------
-    const POLL_MESSAGES_MS = 5000;   // сообщения
-    const POLL_DIALOGS_MS  = 30000;  // диалоги (раз в 30 секунд)
+    // ---------- НАСТРОЙКИ ----------
+    const POLL_MESSAGES_MS = 5000;   // частота опроса новых сообщений
+    const POLL_DIALOGS_MS  = 30000;  // частота обновления списка диалогов
 
     let pollMessagesInterval = null;
     let pollDialogsInterval = null;
@@ -141,7 +140,6 @@
         if (box) box.scrollTop = box.scrollHeight;
     }
 
-    // Преобразование всех временных меток на странице
     function convertAllTimestamps() {
         document.querySelectorAll('.time[datetime]').forEach(el => {
             if (!el.textContent) {
@@ -151,7 +149,7 @@
         });
     }
 
-    // ---------- ДИФФ-ОБНОВЛЕНИЕ САЙДБАРА ----------
+    // ---------- УМНЫЙ СИНХРОНИЗАТОР САЙДБАРА ----------
     async function syncSidebar() {
         try {
             const res = await fetch("/get_dialogs");
@@ -161,56 +159,43 @@
             const sidebar = document.getElementById("sidebar");
             if (!sidebar) return;
 
-            // Получаем текущий список элементов (без заголовка и пустого сообщения)
             const currentItems = Array.from(sidebar.querySelectorAll(".contact-item"));
             const activeUser = document.getElementById("recipient")?.value || "";
 
-            // Строим Map: username -> DOM‑элемент
             const currentMap = new Map();
-            currentItems.forEach(el => {
-                currentMap.set(el.dataset.user, el);
-            });
+            currentItems.forEach(el => currentMap.set(el.dataset.user, el));
 
-            // Строим Set для быстрой проверки
             const newNames = new Set(newDialogs.map(d => d.name));
 
-            // Удаляем элементы, которых больше нет на сервере
+            // Удаляем отсутствующие
             for (const [name, el] of currentMap) {
-                if (!newNames.has(name)) {
-                    el.remove();
-                }
+                if (!newNames.has(name)) el.remove();
             }
 
-            // Сортируем новые диалоги (по порядку, как от сервера)
-            // Добавляем отсутствующие элементы
-            const placeholder = sidebar.querySelector(".contact-item, div[style]");
+            // Добавляем или обновляем
             let lastInsertedEl = null;
-
             for (const d of newDialogs) {
+                const activeClass = (d.name === activeUser) ? "active" : "";
+                const avatarHtml = d.avatar ? `<img src="${d.avatar}">` : d.name[0];
+
                 if (currentMap.has(d.name)) {
-                    // элемент уже существует – обновим только аватар (на случай смены)
                     const el = currentMap.get(d.name);
-                    const avatarImg = el.querySelector(".mini-avatar img");
-                    if (d.avatar && avatarImg) {
-                        if (avatarImg.src !== d.avatar) avatarImg.src = d.avatar;
-                    } else if (!d.avatar && avatarImg) {
-                        avatarImg.remove();
-                        el.querySelector(".mini-avatar").textContent = d.name[0];
-                    } else if (d.avatar && !avatarImg) {
-                        const mini = el.querySelector(".mini-avatar");
-                        mini.innerHTML = `<img src="${d.avatar}">`;
+                    // Обновляем аватар, если изменился
+                    const avatarContainer = el.querySelector(".mini-avatar");
+                    const existingImg = avatarContainer?.querySelector("img");
+                    if (d.avatar) {
+                        if (existingImg) {
+                            if (existingImg.src !== d.avatar) existingImg.src = d.avatar;
+                        } else {
+                            avatarContainer.innerHTML = `<img src="${d.avatar}">`;
+                        }
+                    } else {
+                        if (existingImg) existingImg.remove();
+                        if (!avatarContainer?.textContent?.trim()) avatarContainer.textContent = d.name[0];
                     }
-                    // Обновляем активный класс
                     el.classList.toggle("active", d.name === activeUser);
                     lastInsertedEl = el;
-                    // Перемещаем элемент в нужную позицию? Если порядок на сервере изменился, мы оставляем как есть, чтобы не было перестроек.
-                    // Обычно порядок не меняется, но если сервер вернул сортировку, мы не нарушаем.
                 } else {
-                    // Новый диалог – создаём элемент
-                    const activeClass = (d.name === activeUser) ? "active" : "";
-                    const avatarHtml = d.avatar
-                        ? `<img src="${d.avatar}">`
-                        : d.name[0];
                     const newEl = document.createElement("div");
                     newEl.className = `contact-item ${activeClass}`;
                     newEl.dataset.user = d.name;
@@ -218,38 +203,31 @@
                         <a href="/user/${d.name}" class="mini-avatar" title="Профиль ${d.name}">
                             ${avatarHtml}
                         </a>
-                        <span class="contact-name">${d.name}</span>
-                    `;
-                    // Вставляем после последнего добавленного элемента (или перед первым, если это первый)
+                        <span class="contact-name">${d.name}</span>`;
                     if (lastInsertedEl) {
                         lastInsertedEl.after(newEl);
                     } else {
-                        // Вставляем после заголовка или первым элементом
                         const h3 = sidebar.querySelector("h3");
-                        if (h3) {
-                            h3.after(newEl);
-                        } else {
-                            sidebar.prepend(newEl);
-                        }
+                        h3 ? h3.after(newEl) : sidebar.prepend(newEl);
                     }
                     lastInsertedEl = newEl;
                 }
             }
 
-            // Если после обновления нет ни одного диалога, показываем заглушку (если её ещё нет)
-            if (newDialogs.length === 0 && !sidebar.querySelector(":scope > div[style]")) {
-                const emptyDiv = document.createElement("div");
-                emptyDiv.style.color = "#94a3b8";
-                emptyDiv.textContent = "Нет диалогов";
-                const h3 = sidebar.querySelector("h3");
-                if (h3) h3.after(emptyDiv);
-                else sidebar.appendChild(emptyDiv);
-            } else if (newDialogs.length > 0) {
-                const empty = sidebar.querySelector(":scope > div[style]");
-                if (empty) empty.remove();
+            // Управление заглушкой «Нет диалогов»
+            const emptyDiv = sidebar.querySelector(":scope > div[style]");
+            if (newDialogs.length === 0) {
+                if (!emptyDiv) {
+                    const div = document.createElement("div");
+                    div.style.color = "#94a3b8";
+                    div.textContent = "Нет диалогов";
+                    const h3 = sidebar.querySelector("h3");
+                    h3 ? h3.after(div) : sidebar.appendChild(div);
+                }
+            } else if (emptyDiv) {
+                emptyDiv.remove();
             }
 
-            // Вешаем обработчики клика
             attachSidebarHandlers();
         } catch(e) {}
     }
@@ -257,8 +235,7 @@
     function attachSidebarHandlers() {
         document.querySelectorAll("#sidebar .contact-item").forEach(el => {
             el.onclick = async function(e) {
-                // Если клик пришёлся на ссылку профиля – не перехватываем
-                if (e.target.closest('a')) return;
+                if (e.target.closest('a')) return; // клик по аватарке – переход в профиль
                 e.preventDefault();
                 const user = el.dataset.user;
                 if (user) await loadChat(user);
@@ -273,7 +250,7 @@
         const recipientEl = document.getElementById("recipient");
         if (!box || !recipientEl) return;
 
-        pollMessagesInterval = setInterval(async function() {
+        pollMessagesInterval = setInterval(async () => {
             const lastId = parseInt(box.getAttribute("data-last-id")) || 0;
             const recipient = recipientEl.value;
             try {
@@ -286,7 +263,6 @@
                     const div = document.createElement("div");
                     div.className = `msg ${msg.sender === "{{ user }}" ? "sent" : "received"}`;
                     div.setAttribute("data-msg-id", msg.id);
-
                     const timeIso = msg.timestamp;
                     const time = new Date(timeIso).toLocaleString();
 
@@ -319,8 +295,7 @@
                                 ${dropdownHTML}
                             </div>
                             <time class="time" datetime="${timeIso}">${time}</time>
-                        </div>
-                    `;
+                        </div>`;
                     box.appendChild(div);
                 });
 
@@ -352,58 +327,45 @@
         const newChatArea = doc.querySelector(".chat-area");
         if (!newChatArea) return;
 
-        // Обновляем заголовок
+        // Заголовок
         const newHeader = newChatArea.querySelector(".chat-header");
         const currentHeader = document.querySelector(".chat-header");
-        if (newHeader && currentHeader) {
-            currentHeader.innerHTML = newHeader.innerHTML;
-        }
+        if (newHeader && currentHeader) currentHeader.innerHTML = newHeader.innerHTML;
 
-        // Обновляем сообщения
+        // Сообщения
         const newMessages = newChatArea.querySelector(".chat-messages");
         const chatBox = document.getElementById("chat-box");
         if (newMessages && chatBox) {
             chatBox.innerHTML = newMessages.innerHTML;
             const lastMsg = newMessages.querySelector(".msg:last-child");
-            if (lastMsg) {
-                chatBox.setAttribute("data-last-id", lastMsg.getAttribute("data-msg-id") || "0");
-            } else {
-                chatBox.setAttribute("data-last-id", "0");
-            }
+            chatBox.setAttribute("data-last-id", lastMsg ? lastMsg.getAttribute("data-msg-id") || "0" : "0");
         }
 
-        // Обновляем скрытое поле recipient
+        // Скрытое поле recipient
         const recipientInput = document.getElementById("recipient");
-        if (recipientInput) {
-            recipientInput.value = recipient;
-        }
+        if (recipientInput) recipientInput.value = recipient;
 
         // Поле ввода
-        const inputArea = document.getElementById("input-area");
-        if (inputArea) {
-            inputArea.style.display = "flex";
+        let inputArea = document.getElementById("input-area");
+        if (!inputArea) {
+            inputArea = document.createElement("div");
+            inputArea.className = "input-area";
+            inputArea.id = "input-area";
+            inputArea.innerHTML = `
+                <input type="hidden" id="recipient" value="${recipient}">
+                <input type="text" id="msg-input" placeholder="Сообщение..." autocomplete="off">
+                <button id="send-btn" type="button">Отправить</button>
+            `;
+            document.querySelector(".chat-area")?.appendChild(inputArea);
         } else {
-            const chatAreaEl = document.querySelector(".chat-area");
-            if (chatAreaEl) {
-                const newInputArea = document.createElement("div");
-                newInputArea.className = "input-area";
-                newInputArea.id = "input-area";
-                newInputArea.innerHTML = `
-                    <input type="hidden" id="recipient" value="${recipient}">
-                    <input type="text" id="msg-input" placeholder="Сообщение..." autocomplete="off">
-                    <button id="send-btn" type="button">Отправить</button>
-                `;
-                chatAreaEl.appendChild(newInputArea);
-            }
+            inputArea.style.display = "flex";
         }
 
         convertAllTimestamps();
         attachAllHandlers();
         scrollDown();
         startPollingMessages();
-
-        // Быстрая синхронизация сайдбара (чтобы класс active обновился сразу)
-        await syncSidebar();
+        await syncSidebar();  // синхронизация сайдбара
     }
 
     // ---------- ОТПРАВКА СООБЩЕНИЯ ----------
@@ -412,7 +374,6 @@
         const inputEl = document.getElementById("msg-input");
         const sendBtn = document.getElementById("send-btn");
         const recipientEl = document.getElementById("recipient");
-
         if (!inputEl || !recipientEl) return;
         const text = inputEl.value.trim();
         const recipient = recipientEl.value;
@@ -435,7 +396,6 @@
             if (res.ok) {
                 inputEl.value = "";
                 inputEl.focus();
-                // Перезагружаем чат, чтобы получить id / timestamp
                 await loadChat(recipient);
             }
         } finally {
@@ -445,13 +405,12 @@
         }
     }
 
-    // ---------- УДАЛЕНИЕ / РЕДАКТИРОВАНИЕ СООБЩЕНИЙ ----------
+    // ---------- АДМИНИСТРАТИВНЫЕ ДЕЙСТВИЯ ----------
     async function deleteMessage(messageId, recipient) {
         if (!confirm("Удалить сообщение?")) return;
         const form = new URLSearchParams();
         form.append("message_id", messageId);
         form.append("recipient", recipient);
-
         const res = await fetch("/delete_message", {
             method: "POST",
             headers: {"Content-Type": "application/x-www-form-urlencoded"},
@@ -463,12 +422,10 @@
     async function editMessage(messageId, oldText, recipient) {
         const newText = prompt("Редактировать:", oldText);
         if (!newText || newText === oldText) return;
-
         const form = new URLSearchParams();
         form.append("message_id", messageId);
         form.append("new_text", newText);
         form.append("recipient", recipient);
-
         const res = await fetch("/edit_message", {
             method: "POST",
             headers: {"Content-Type": "application/x-www-form-urlencoded"},
@@ -477,12 +434,10 @@
         if (res.ok) await loadChat(recipient);
     }
 
-    // ---------- УДАЛЕНИЕ ЧАТА ----------
     async function deleteChat(recipient) {
         if (!confirm("Удалить чат с " + recipient + "?")) return;
         const form = new URLSearchParams();
         form.append("recipient", recipient);
-
         const res = await fetch("/delete_chat", {
             method: "POST",
             headers: {"Content-Type": "application/x-www-form-urlencoded"},
@@ -490,7 +445,35 @@
         });
         if (res.ok) {
             stopPollingMessages();
-            window.location.href = "/message";  // редирект на страницу без чата
+            window.location.href = "/message";
+        }
+    }
+
+    // ---------- AJAX ДЛЯ НАЧАЛА ЧАТА ----------
+    async function startChatAjax(e) {
+        e.preventDefault();
+        const input = document.getElementById("contact-name");
+        const name = input.value.trim();
+        if (!name) return;
+
+        const form = new URLSearchParams();
+        form.append("contact_name", name);
+
+        try {
+            const res = await fetch("/start_chat", {
+                method: "POST",
+                headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                body: form
+            });
+            const data = await res.json();
+            if (data.status === "ok") {
+                input.value = "";
+                await loadChat(data.recipient);   // загружаем чат и обновляем сайдбар
+            } else {
+                alert(data.message || "Ошибка");
+            }
+        } catch (err) {
+            alert("Ошибка сети");
         }
     }
 
@@ -500,11 +483,8 @@
         const newInput = document.getElementById("msg-input");
         if (newBtn && newInput) {
             newBtn.onclick = sendMessage;
-            newInput.onkeydown = function(e) {
-                if (e.key === "Enter") {
-                    e.preventDefault();
-                    sendMessage();
-                }
+            newInput.onkeydown = e => {
+                if (e.key === "Enter") { e.preventDefault(); sendMessage(); }
             };
         }
 
@@ -523,46 +503,45 @@
                 }
             };
         });
-
-        document.addEventListener('click', function(e) {
+        document.addEventListener('click', e => {
             if (!e.target.closest('.msg-dropdown')) {
                 document.querySelectorAll('.msg-dropdown-content.show').forEach(m => m.classList.remove('show'));
             }
         });
 
         document.querySelectorAll(".edit-msg-btn").forEach(btn => {
-            btn.onclick = async function(e) {
+            btn.onclick = async e => {
                 e.preventDefault();
-                const id = btn.dataset.id;
-                const oldText = btn.dataset.text;
-                const recipient = btn.dataset.recipient;
-                await editMessage(id, oldText, recipient);
+                await editMessage(btn.dataset.id, btn.dataset.text, btn.dataset.recipient);
             };
         });
 
         document.querySelectorAll(".delete-message-form").forEach(form => {
-            form.onsubmit = async function(e) {
+            form.onsubmit = async e => {
                 e.preventDefault();
-                const messageId = form.querySelector('input[name="message_id"]').value;
-                const recipient = form.querySelector('input[name="recipient"]').value;
-                await deleteMessage(messageId, recipient);
+                const msgId = form.querySelector('input[name="message_id"]').value;
+                const rec = form.querySelector('input[name="recipient"]').value;
+                await deleteMessage(msgId, rec);
             };
         });
 
         const deleteChatForm = document.querySelector(".delete-chat-form");
         if (deleteChatForm) {
-            deleteChatForm.onsubmit = async function(e) {
+            deleteChatForm.onsubmit = async e => {
                 e.preventDefault();
-                const recipient = deleteChatForm.querySelector('input[name="recipient"]').value;
-                await deleteChat(recipient);
+                const rec = deleteChatForm.querySelector('input[name="recipient"]').value;
+                await deleteChat(rec);
             };
         }
+
+        // Форма начала чата
+        document.getElementById("start-chat-form").onsubmit = startChatAjax;
     }
 
-    // ---------- ЗАПУСК ПЕРИОДИЧЕСКИХ ОПРОСОВ ----------
+    // ---------- ПЕРИОДИЧЕСКИЕ ЗАПРОСЫ ----------
     function startDialogsPolling() {
         stopDialogsPolling();
-        syncSidebar();  // немедленная синхронизация после загрузки
+        syncSidebar(); // сразу после загрузки
         pollDialogsInterval = setInterval(syncSidebar, POLL_DIALOGS_MS);
     }
 
@@ -573,7 +552,7 @@
         }
     }
 
-    // ---------- ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ ----------
+    // ---------- ЗАПУСК ----------
     attachAllHandlers();
     convertAllTimestamps();
     scrollDown();
