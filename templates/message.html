@@ -337,7 +337,7 @@
             const lastId = Number(box.getAttribute("data-last-id") || 0);
 
             const res = await fetch(
-                `/get_new_messages?recipient=${encodeURIComponent(recipient)}&after_id=${lastId}`,
+                `/get_dialogs?recipient=${encodeURIComponent(recipient)}&after_id=${lastId}`,
                 { cache: "no-store" }
             );
 
