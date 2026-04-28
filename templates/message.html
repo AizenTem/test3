@@ -11,6 +11,7 @@
 <div class="page">
     <div class="top-bar">
         <a href="/success" class="btn-back">← Назад</a>
+
         <form action="/start_chat" method="post" class="start-chat-form">
             <input type="text" name="contact_name" placeholder="Найти пользователя..." required>
             <button type="submit">Начать чат</button>
@@ -18,14 +19,17 @@
     </div>
 
     <div class="chat-wrapper">
+
+        <!-- SIDEBAR -->
         <aside class="sidebar">
-            <h3 style="color: #64748b; font-size: 0.8rem; margin-bottom: 15px;">Диалоги</h3>
+            <h3 style="color:#64748b;font-size:0.8rem;margin-bottom:15px;">Диалоги</h3>
+
             {% if dialogs %}
                 {% for d in dialogs %}
-                    <a href="/message?recipient={{ d.name }}" class="contact-item {% if recipient == d.name %}active{% endif %}">
+                    <a href="#" class="contact-item {% if d.name == recipient %}active{% endif %}" data-user="{{ d.name }}">
                         <div class="mini-avatar">
                             {% if d.avatar %}
-                                <img src="{{ d.avatar }}" alt="">
+                                <img src="{{ d.avatar }}">
                             {% else %}
                                 {{ d.name[0] }}
                             {% endif %}
@@ -34,40 +38,42 @@
                     </a>
                 {% endfor %}
             {% else %}
-                <div style="color: #94a3b8;">У вас пока нет активных диалогов</div>
+                <div style="color:#94a3b8;">Нет диалогов</div>
             {% endif %}
         </aside>
 
+        <!-- CHAT -->
         <main class="chat-area">
+
             <header class="chat-header">
                 {% if recipient %}
                     <div class="chat-title">
                         <div class="header-avatar">
                             {% if recipient_avatar %}
-                                <img src="{{ recipient_avatar }}" alt="">
+                                <img src="{{ recipient_avatar }}">
                             {% else %}
                                 {{ recipient[0] }}
                             {% endif %}
                         </div>
                         <div>Чат с <strong>{{ recipient }}</strong></div>
                     </div>
-                    <form action="/delete_chat" method="post" style="margin: 0;">
+
+                    <form action="/delete_chat" method="post" class="delete-chat-form">
                         <input type="hidden" name="recipient" value="{{ recipient }}">
-                        <button type="submit" class="btn-delete" onclick="return confirm('Удалить всю историю переписки?')">
-                            Удалить чат
-                        </button>
+                        <button class="btn-delete" type="submit">Удалить чат</button>
                     </form>
                 {% else %}
-                    <div style="color: #94a3b8;">Выберите собеседника</div>
+                    <div style="color:#94a3b8;">Выберите собеседника</div>
                 {% endif %}
             </header>
 
+            <!-- MESSAGES -->
             <div class="chat-messages" id="chat-box">
                 {% for msg in history %}
                     <div class="msg {% if msg.sender == user %}sent{% else %}received{% endif %}">
                         <div class="msg-avatar">
                             {% if msg.avatar %}
-                                <img src="{{ msg.avatar }}" alt="">
+                                <img src="{{ msg.avatar }}">
                             {% else %}
                                 {{ msg.sender[0] }}
                             {% endif %}
@@ -76,92 +82,282 @@
                         <div class="msg-body">
                             <div class="msg-content">
                                 <span class="text">{{ msg.text }}</span>
+
                                 <div class="msg-dropdown">
-                                    <button class="msg-menu-btn" onclick="toggleMenu(this)">⋮</button>
+                                    <button type="button" class="msg-menu-btn">⋮</button>
+
                                     <div class="msg-dropdown-content">
-                                        {% if recipient and msg.sender == user %}
-                                            <a href="#" class="edit-msg-btn"
-                                               data-id="{{ msg.id }}"
-                                               data-text="{{ msg.text }}"
-                                               data-recipient="{{ recipient }}">Изменить</a>
+                                        {% if msg.sender == user %}
+                                        <a href="#" class="edit-msg-btn"
+                                           data-id="{{ msg.id }}"
+                                           data-text="{{ msg.text }}"
+                                           data-recipient="{{ recipient }}">
+                                            Изменить
+                                        </a>
                                         {% endif %}
-                                        <form action="/delete_message" method="post" style="margin: 0;">
+
+                                        <form action="/delete_message" method="post" class="delete-message-form">
                                             <input type="hidden" name="message_id" value="{{ msg.id }}">
                                             <input type="hidden" name="recipient" value="{{ recipient }}">
-                                            <button type="submit" onclick="return confirm('Удалить сообщение?')">Удалить</button>
+                                            <button type="submit">Удалить</button>
                                         </form>
                                     </div>
                                 </div>
                             </div>
+
                             <div class="time">{{ msg.timestamp }}</div>
                         </div>
                     </div>
                 {% endfor %}
             </div>
 
+            <!-- INPUT -->
             {% if recipient %}
-            <form action="/send_message" method="post" class="input-area">
-                <input type="hidden" name="recipient" value="{{ recipient }}">
-                <input type="text" name="text" placeholder="Ваше сообщение..." required autocomplete="off">
-                <button type="submit">Отправить</button>
-            </form>
+            <div class="input-area" id="input-area">
+                <input type="hidden" id="recipient" value="{{ recipient }}">
+                <input type="text" id="msg-input" placeholder="Сообщение..." autocomplete="off">
+                <button id="send-btn" type="button">Отправить</button>
+            </div>
             {% endif %}
+
         </main>
     </div>
 </div>
 
 <script>
-    const box = document.getElementById('chat-box');
-    if (box) box.scrollTop = box.scrollHeight;
-
-    function toggleMenu(btn) {
-        const menu = btn.nextElementSibling;
-        document.querySelectorAll('.msg-dropdown-content').forEach(m => {
-            if (m !== menu) m.classList.remove('show');
+// Закрытие выпадающих меню при клике вне
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.msg-dropdown')) {
+        document.querySelectorAll('.msg-dropdown-content.show').forEach(function(menu) {
+            menu.classList.remove('show');
         });
-        menu.classList.toggle('show');
+    }
+});
+
+(function() {
+
+    function scrollDown() {
+        var box = document.getElementById("chat-box");
+        if (box) box.scrollTop = box.scrollHeight;
     }
 
-    window.onclick = function(e) {
-        if (!e.target.matches('.msg-menu-btn')) {
-            document.querySelectorAll('.msg-dropdown-content').forEach(m => m.classList.remove('show'));
+    async function loadChat(recipient) {
+        var res = await fetch('/message?recipient=' + encodeURIComponent(recipient), {
+            headers: { "X-Partial": "1" }
+        });
+        var html = await res.text();
+        var doc = new DOMParser().parseFromString(html, "text/html");
+
+        var newChatArea = doc.querySelector(".chat-area");
+        if (!newChatArea) return;
+
+        // Обновляем заголовок
+        var newHeader = newChatArea.querySelector(".chat-header");
+        var currentHeader = document.querySelector(".chat-header");
+        if (newHeader && currentHeader) {
+            currentHeader.innerHTML = newHeader.innerHTML;
         }
-    };
 
-    document.addEventListener('click', async function(e) {
-        const editBtn = e.target.closest('.edit-msg-btn');
-        if (!editBtn) return;
+        // Обновляем только сообщения
+        var newMessages = newChatArea.querySelector(".chat-messages");
+        var chatBox = document.getElementById("chat-box");
+        if (newMessages && chatBox) {
+            chatBox.innerHTML = newMessages.innerHTML;
+        }
 
-        e.preventDefault();
-        document.querySelectorAll('.msg-dropdown-content').forEach(m => m.classList.remove('show'));
+        // Обновляем скрытое поле recipient
+        var recipientInput = document.getElementById("recipient");
+        if (recipientInput) {
+            recipientInput.value = recipient;
+        }
 
-        const id = editBtn.dataset.id;
-        const oldText = editBtn.dataset.text;
-        const recipient = editBtn.dataset.recipient;
+        // Показываем поле ввода
+        var inputArea = document.getElementById("input-area");
+        if (inputArea) {
+            inputArea.style.display = "flex";
+        } else {
+            var chatArea = document.querySelector(".chat-area");
+            if (chatArea) {
+                var newInputArea = document.createElement("div");
+                newInputArea.className = "input-area";
+                newInputArea.id = "input-area";
+                newInputArea.innerHTML = '<input type="hidden" id="recipient" value="' + recipient + '"><input type="text" id="msg-input" placeholder="Сообщение..." autocomplete="off"><button id="send-btn" type="button">Отправить</button>';
+                chatArea.appendChild(newInputArea);
+            }
+        }
 
-        let newText = prompt('Редактировать сообщение:', oldText);
-        if (newText === null) return;
+        // Подсветка активного контакта
+        document.querySelectorAll(".contact-item").forEach(function(item) {
+            item.classList.remove("active");
+            if (item.dataset.user === recipient) {
+                item.classList.add("active");
+            }
+        });
 
-        newText = newText.trim();
-        if (newText === '' || newText === oldText) return;
+        attachHandlers();
+        scrollDown();
+    }
 
-        const formData = new URLSearchParams();
-        formData.append('message_id', id);
-        formData.append('new_text', newText);
-        formData.append('recipient', recipient);
+    async function sendMessage() {
+        var inputEl = document.getElementById("msg-input");
+        var recipientEl = document.getElementById("recipient");
 
-        const res = await fetch('/edit_message', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: formData
+        if (!inputEl || !recipientEl) return;
+
+        var text = inputEl.value.trim();
+        var recipient = recipientEl.value;
+
+        if (!text) return;
+
+        var form = new URLSearchParams();
+        form.append("text", text);
+        form.append("recipient", recipient);
+
+        var res = await fetch("/send_message", {
+            method: "POST",
+            headers: {"Content-Type": "application/x-www-form-urlencoded"},
+            body: form
         });
 
         if (res.ok) {
-            window.location.href = `/message?recipient=${recipient}`;
-        } else {
-            alert('Не удалось изменить сообщение');
+            inputEl.value = "";
+            inputEl.focus();
+            await loadChat(recipient);
         }
-    });
+    }
+
+    async function deleteMessage(messageId, recipient) {
+        if (!confirm("Удалить сообщение?")) return;
+
+        var form = new URLSearchParams();
+        form.append("message_id", messageId);
+        form.append("recipient", recipient);
+
+        var res = await fetch("/delete_message", {
+            method: "POST",
+            headers: {"Content-Type": "application/x-www-form-urlencoded"},
+            body: form
+        });
+
+        if (res.ok) {
+            await loadChat(recipient);
+        }
+    }
+
+    async function editMessage(messageId, oldText, recipient) {
+        var newText = prompt("Редактировать:", oldText);
+        if (!newText || newText === oldText) return;
+
+        var form = new URLSearchParams();
+        form.append("message_id", messageId);
+        form.append("new_text", newText);
+        form.append("recipient", recipient);
+
+        var res = await fetch("/edit_message", {
+            method: "POST",
+            headers: {"Content-Type": "application/x-www-form-urlencoded"},
+            body: form
+        });
+
+        if (res.ok) {
+            await loadChat(recipient);
+        }
+    }
+
+    async function deleteChat(recipient) {
+        if (!confirm("Удалить чат с " + recipient + "?")) return;
+
+        var form = new URLSearchParams();
+        form.append("recipient", recipient);
+
+        var res = await fetch("/delete_chat", {
+            method: "POST",
+            headers: {"Content-Type": "application/x-www-form-urlencoded"},
+            body: form
+        });
+
+        if (res.ok) {
+            window.location.href = "/message";
+        }
+    }
+
+    function attachHandlers() {
+
+        // SEND BUTTON
+        var newBtn = document.getElementById("send-btn");
+        var newInput = document.getElementById("msg-input");
+
+        if (newBtn && newInput) {
+            newBtn.onclick = sendMessage;
+            newInput.onkeydown = function(e) {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            };
+        }
+
+        // CONTACT SWITCH
+        document.querySelectorAll(".contact-item").forEach(function(el) {
+            el.onclick = async function(e) {
+                e.preventDefault();
+                await loadChat(el.dataset.user);
+            };
+        });
+
+        // MENU TOGGLE
+        document.querySelectorAll(".msg-menu-btn").forEach(function(btn) {
+            btn.onclick = function(e) {
+                e.stopPropagation();
+                var menu = btn.nextElementSibling;
+                if (menu) {
+                    // Закрываем все остальные меню
+                    document.querySelectorAll('.msg-dropdown-content.show').forEach(function(m) {
+                        if (m !== menu) m.classList.remove('show');
+                    });
+                    menu.classList.toggle("show");
+                }
+            };
+        });
+
+        // EDIT BUTTON
+        document.querySelectorAll(".edit-msg-btn").forEach(function(btn) {
+            btn.onclick = async function(e) {
+                e.preventDefault();
+                var id = btn.dataset.id;
+                var oldText = btn.dataset.text;
+                var recipient = btn.dataset.recipient;
+                await editMessage(id, oldText, recipient);
+            };
+        });
+
+        // DELETE MESSAGE FORM
+        document.querySelectorAll(".delete-message-form").forEach(function(form) {
+            form.onsubmit = async function(e) {
+                e.preventDefault();
+                var messageId = form.querySelector('input[name="message_id"]').value;
+                var recipient = form.querySelector('input[name="recipient"]').value;
+                await deleteMessage(messageId, recipient);
+            };
+        });
+
+        // DELETE CHAT FORM
+        var deleteChatForm = document.querySelector(".delete-chat-form");
+        if (deleteChatForm) {
+            deleteChatForm.onsubmit = async function(e) {
+                e.preventDefault();
+                var recipient = deleteChatForm.querySelector('input[name="recipient"]').value;
+                await deleteChat(recipient);
+            };
+        }
+    }
+
+    // INIT
+    attachHandlers();
+    scrollDown();
+
+})();
 </script>
+
 </body>
 </html>
