@@ -19,11 +19,8 @@
     </div>
 
     <div class="chat-wrapper">
-
-        <!-- SIDEBAR -->
         <aside class="sidebar">
             <h3 style="color:#64748b;font-size:0.8rem;margin-bottom:15px;">Диалоги</h3>
-
             {% if dialogs %}
                 {% for d in dialogs %}
                     <a href="#" class="contact-item {% if d.name == recipient %}active{% endif %}" data-user="{{ d.name }}">
@@ -41,10 +38,7 @@
                 <div style="color:#94a3b8;">Нет диалогов</div>
             {% endif %}
         </aside>
-
-        <!-- CHAT -->
         <main class="chat-area">
-
             <header class="chat-header">
                 {% if recipient %}
                     <div class="chat-title">
@@ -57,7 +51,6 @@
                         </div>
                         <div>Чат с <strong>{{ recipient }}</strong></div>
                     </div>
-
                     <form action="/delete_chat" method="post" class="delete-chat-form">
                         <input type="hidden" name="recipient" value="{{ recipient }}">
                         <button class="btn-delete" type="submit">Удалить чат</button>
@@ -66,8 +59,6 @@
                     <div style="color:#94a3b8;">Выберите собеседника</div>
                 {% endif %}
             </header>
-
-            <!-- MESSAGES -->
             <div class="chat-messages" id="chat-box">
                 {% for msg in history %}
                     <div class="msg {% if msg.sender == user %}sent{% else %}received{% endif %}">
@@ -78,14 +69,11 @@
                                 {{ msg.sender[0] }}
                             {% endif %}
                         </div>
-
                         <div class="msg-body">
                             <div class="msg-content">
                                 <span class="text">{{ msg.text }}</span>
-
                                 <div class="msg-dropdown">
                                     <button type="button" class="msg-menu-btn">⋮</button>
-
                                     <div class="msg-dropdown-content">
                                         {% if msg.sender == user %}
                                         <a href="#" class="edit-msg-btn"
@@ -95,7 +83,6 @@
                                             Изменить
                                         </a>
                                         {% endif %}
-
                                         <form action="/delete_message" method="post" class="delete-message-form">
                                             <input type="hidden" name="message_id" value="{{ msg.id }}">
                                             <input type="hidden" name="recipient" value="{{ recipient }}">
@@ -104,14 +91,11 @@
                                     </div>
                                 </div>
                             </div>
-
                             <div class="time">{{ msg.timestamp }}</div>
                         </div>
                     </div>
                 {% endfor %}
             </div>
-
-            <!-- INPUT -->
             {% if recipient %}
             <div class="input-area" id="input-area">
                 <input type="hidden" id="recipient" value="{{ recipient }}">
@@ -123,9 +107,7 @@
         </main>
     </div>
 </div>
-
 <script>
-// Закрытие выпадающих меню при клике вне
 document.addEventListener('click', function(e) {
     if (!e.target.closest('.msg-dropdown')) {
         document.querySelectorAll('.msg-dropdown-content.show').forEach(function(menu) {
@@ -133,14 +115,11 @@ document.addEventListener('click', function(e) {
         });
     }
 });
-
 (function() {
-
     function scrollDown() {
         var box = document.getElementById("chat-box");
         if (box) box.scrollTop = box.scrollHeight;
     }
-
     async function loadChat(recipient) {
         var res = await fetch('/message?recipient=' + encodeURIComponent(recipient), {
             headers: { "X-Partial": "1" }
@@ -150,28 +129,20 @@ document.addEventListener('click', function(e) {
 
         var newChatArea = doc.querySelector(".chat-area");
         if (!newChatArea) return;
-
-        // Обновляем заголовок
         var newHeader = newChatArea.querySelector(".chat-header");
         var currentHeader = document.querySelector(".chat-header");
         if (newHeader && currentHeader) {
             currentHeader.innerHTML = newHeader.innerHTML;
         }
-
-        // Обновляем только сообщения
         var newMessages = newChatArea.querySelector(".chat-messages");
         var chatBox = document.getElementById("chat-box");
         if (newMessages && chatBox) {
             chatBox.innerHTML = newMessages.innerHTML;
         }
-
-        // Обновляем скрытое поле recipient
         var recipientInput = document.getElementById("recipient");
         if (recipientInput) {
             recipientInput.value = recipient;
         }
-
-        // Показываем поле ввода
         var inputArea = document.getElementById("input-area");
         if (inputArea) {
             inputArea.style.display = "flex";
@@ -185,8 +156,6 @@ document.addEventListener('click', function(e) {
                 chatArea.appendChild(newInputArea);
             }
         }
-
-        // Подсветка активного контакта
         document.querySelectorAll(".contact-item").forEach(function(item) {
             item.classList.remove("active");
             if (item.dataset.user === recipient) {
@@ -201,49 +170,38 @@ document.addEventListener('click', function(e) {
     async function sendMessage() {
         var inputEl = document.getElementById("msg-input");
         var recipientEl = document.getElementById("recipient");
-
         if (!inputEl || !recipientEl) return;
-
         var text = inputEl.value.trim();
         var recipient = recipientEl.value;
-
         if (!text) return;
-
         var form = new URLSearchParams();
         form.append("text", text);
         form.append("recipient", recipient);
-
         var res = await fetch("/send_message", {
             method: "POST",
             headers: {"Content-Type": "application/x-www-form-urlencoded"},
             body: form
         });
-
         if (res.ok) {
             inputEl.value = "";
             inputEl.focus();
             await loadChat(recipient);
         }
     }
-
     async function deleteMessage(messageId, recipient) {
         if (!confirm("Удалить сообщение?")) return;
-
         var form = new URLSearchParams();
         form.append("message_id", messageId);
         form.append("recipient", recipient);
-
         var res = await fetch("/delete_message", {
             method: "POST",
             headers: {"Content-Type": "application/x-www-form-urlencoded"},
             body: form
         });
-
         if (res.ok) {
             await loadChat(recipient);
         }
     }
-
     async function editMessage(messageId, oldText, recipient) {
         var newText = prompt("Редактировать:", oldText);
         if (!newText || newText === oldText) return;
@@ -252,38 +210,29 @@ document.addEventListener('click', function(e) {
         form.append("message_id", messageId);
         form.append("new_text", newText);
         form.append("recipient", recipient);
-
         var res = await fetch("/edit_message", {
             method: "POST",
             headers: {"Content-Type": "application/x-www-form-urlencoded"},
             body: form
         });
-
         if (res.ok) {
             await loadChat(recipient);
         }
     }
-
     async function deleteChat(recipient) {
         if (!confirm("Удалить чат с " + recipient + "?")) return;
-
         var form = new URLSearchParams();
         form.append("recipient", recipient);
-
         var res = await fetch("/delete_chat", {
             method: "POST",
             headers: {"Content-Type": "application/x-www-form-urlencoded"},
             body: form
         });
-
         if (res.ok) {
             window.location.href = "/message";
         }
     }
-
     function attachHandlers() {
-
-        // SEND BUTTON
         var newBtn = document.getElementById("send-btn");
         var newInput = document.getElementById("msg-input");
 
@@ -296,22 +245,17 @@ document.addEventListener('click', function(e) {
                 }
             };
         }
-
-        // CONTACT SWITCH
         document.querySelectorAll(".contact-item").forEach(function(el) {
             el.onclick = async function(e) {
                 e.preventDefault();
                 await loadChat(el.dataset.user);
             };
         });
-
-        // MENU TOGGLE
         document.querySelectorAll(".msg-menu-btn").forEach(function(btn) {
             btn.onclick = function(e) {
                 e.stopPropagation();
                 var menu = btn.nextElementSibling;
                 if (menu) {
-                    // Закрываем все остальные меню
                     document.querySelectorAll('.msg-dropdown-content.show').forEach(function(m) {
                         if (m !== menu) m.classList.remove('show');
                     });
@@ -319,8 +263,6 @@ document.addEventListener('click', function(e) {
                 }
             };
         });
-
-        // EDIT BUTTON
         document.querySelectorAll(".edit-msg-btn").forEach(function(btn) {
             btn.onclick = async function(e) {
                 e.preventDefault();
@@ -330,8 +272,6 @@ document.addEventListener('click', function(e) {
                 await editMessage(id, oldText, recipient);
             };
         });
-
-        // DELETE MESSAGE FORM
         document.querySelectorAll(".delete-message-form").forEach(function(form) {
             form.onsubmit = async function(e) {
                 e.preventDefault();
@@ -340,8 +280,6 @@ document.addEventListener('click', function(e) {
                 await deleteMessage(messageId, recipient);
             };
         });
-
-        // DELETE CHAT FORM
         var deleteChatForm = document.querySelector(".delete-chat-form");
         if (deleteChatForm) {
             deleteChatForm.onsubmit = async function(e) {
@@ -351,13 +289,10 @@ document.addEventListener('click', function(e) {
             };
         }
     }
-
-    // INIT
     attachHandlers();
     scrollDown();
 
 })();
 </script>
-
 </body>
 </html>
