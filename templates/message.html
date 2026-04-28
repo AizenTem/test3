@@ -529,27 +529,85 @@ function startDialogsPolling() {
             const sidebar = document.querySelector(".sidebar");
             if (!sidebar) return;
 
-            // Простая перерисовка списка диалогов
-            let html = `<h3 style="color:#64748b;font-size:0.8rem;margin-bottom:15px;">Диалоги</h3>`;
-            if (newDialogs.length) {
-                newDialogs.forEach(d => {
-                    const active = d.name === "{{ recipient }}" ? "active" : "";
-                    html += `
-                        <a href="#" class="contact-item ${active}" data-user="${d.name}">
-                            <div class="mini-avatar">
-                                ${d.avatar ? `<img src="${d.avatar}">` : d.name[0]}
-                            </div>
-                            <span>${d.name}</span>
-                        </a>`;
-                });
-            } else {
-                html += `<div style="color:#94a3b8;">Нет диалогов</div>`;
-            }
-            sidebar.innerHTML = html;
+            // Получаем текущий активный диалог
+            const currentActive = sidebar.querySelector(".contact-item.active");
+            const currentActiveUser = currentActive ? currentActive.dataset.user : null;
 
-            attachHandlers(); // переподключаем события
-        } catch(e) {}
-    }, 5000); // каждые 5 секунд
+            // Получаем существующие элементы диалогов
+            const existingItems = sidebar.querySelectorAll(".contact-item");
+            const existingUsers = new Map();
+            
+            existingItems.forEach(item => {
+                const userName = item.dataset.user;
+                existingUsers.set(userName, item);
+            });
+
+            // Обновляем или создаем только изменившиеся диалоги
+            newDialogs.forEach(d => {
+                const existingItem = existingUsers.get(d.name);
+                
+                if (existingItem) {
+                    // Обновляем существующий элемент (только если нужно)
+                    const avatarDiv = existingItem.querySelector(".mini-avatar");
+                    const currentAvatar = avatarDiv.innerHTML;
+                    const newAvatar = d.avatar ? `<img src="${d.avatar}">` : d.name[0];
+                    
+                    if (currentAvatar !== newAvatar) {
+                        avatarDiv.innerHTML = newAvatar;
+                    }
+                    
+                    // Обновляем активный класс без мигания
+                    if (d.name === currentActiveUser && !existingItem.classList.contains("active")) {
+                        existingItem.classList.add("active");
+                    } else if (d.name !== currentActiveUser && existingItem.classList.contains("active")) {
+                        existingItem.classList.remove("active");
+                    }
+                } else {
+                    // Создаем новый диалог
+                    const newItem = document.createElement("a");
+                    newItem.href = "#";
+                    newItem.className = "contact-item";
+                    if (d.name === currentActiveUser) newItem.classList.add("active");
+                    newItem.dataset.user = d.name;
+                    newItem.innerHTML = `
+                        <div class="mini-avatar">
+                            ${d.avatar ? `<img src="${d.avatar}">` : d.name[0]}
+                        </div>
+                        <span>${escapeHtml(d.name)}</span>
+                    `;
+                    
+                    // Вставляем в правильном порядке (можно отсортировать)
+                    const contactsContainer = sidebar.querySelector(".contacts-container") || sidebar;
+                    contactsContainer.appendChild(newItem);
+                }
+            });
+
+            // Удаляем диалоги, которых больше нет
+            existingItems.forEach(item => {
+                const userName = item.dataset.user;
+                if (!newDialogs.some(d => d.name === userName)) {
+                    item.remove();
+                }
+            });
+
+            // Прикрепляем обработчики только к новым элементам
+            attachHandlers();
+            
+        } catch(e) {
+            console.error("Polling error:", e);
+        }
+    }, 5000);
+}
+
+// Вспомогательная функция для экранирования HTML
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+    });
 }
 
  // Запускаем при загрузке
