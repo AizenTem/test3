@@ -542,9 +542,7 @@ function startDialogsPolling() {
                             <span>${d.name}</span>
                         </a>`;
                 });
-            } else {
-                html += `<div style="color:#94a3b8;">Нет диалогов</div>`;
-            }
+            } 
             sidebar.innerHTML = html;
 
             attachHandlers(); // переподключаем события
