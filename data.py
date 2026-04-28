@@ -1,5 +1,4 @@
 import sqlite3
-from datetime import datetime
 
 db_user = "database.db"
 db_messages = "messages.db"
@@ -11,11 +10,6 @@ def conn_user():
 
 def conn_mess():
     return sqlite3.connect(db_messages)
-
-
-def get_db_connection():
-    """Для совместимости с кодом, который использует get_db_connection"""
-    return conn_mess()
 
 
 def create_tables():
@@ -50,21 +44,19 @@ def create_tables_messenger():
     with conn_mess() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
+            CREATE TABLE IF NOT EXISTS chat_messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sender TEXT NOT NULL,
-                recipient TEXT NOT NULL,
-                text TEXT NOT NULL,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                edited BOOLEAN DEFAULT 0
+                sender_email TEXT NOT NULL,
+                receiver_email TEXT NOT NULL,
+                message TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS chats (
+            CREATE TABLE IF NOT EXISTS dialogs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user1 TEXT NOT NULL,
-                user2 TEXT NOT NULL,
-                UNIQUE(user1, user2)
+                user2 TEXT NOT NULL
             )
         """)
         conn.commit()
@@ -132,61 +124,45 @@ def delete_photo(file_path):
         conn.commit()
 
 
-def create_chats(user1: str, user2: str):
-    """Создать запись о чате между пользователями."""
+def create_chats(user1, user2):
     with conn_mess() as conn:
         cursor = conn.cursor()
-        # Проверяем, существует ли уже чат
+        cursor.execute("""
+            SELECT 1 FROM dialogs
+            WHERE (user1 = ? AND user2 = ?) OR (user1 = ? AND user2 = ?)
+        """, (user1, user2, user2, user1))
+        if cursor.fetchone():
+            return
         cursor.execute(
-            "SELECT 1 FROM dialogs WHERE (user1 = ? AND user2 = ?) OR (user1 = ? AND user2 = ?)",
-            (user1, user2, user2, user1)
+            "INSERT INTO dialogs (user1, user2) VALUES (?, ?)",
+            (user1, user2)
         )
-        if not cursor.fetchone():
-            cursor.execute(
-                "INSERT INTO dialogs (user1, user2) VALUES (?, ?)",
-                (user1, user2)
-            )
-            conn.commit()
+        conn.commit()
+
 
 def get_dialog(username):
     with conn_mess() as conn:
         cursor = conn.cursor()
-        try:
-            cursor.execute(
-                "SELECT user1, user2 FROM chats WHERE user1 = ? OR user2 = ?",
-                (username, username)
-            )
-            rows = cursor.fetchall()
+        cursor.execute(
+            "SELECT user1, user2 FROM dialogs WHERE user1 = ? OR user2 = ?",
+            (username, username)
+        )
+        rows = cursor.fetchall()
 
-            dialogs = []
-            for u1, u2 in rows:
-                dialogs.append(u2 if u1 == username else u1)
-            return dialogs
-        except sqlite3.OperationalError:
-            return []
+        dialogs = []
+        for u1, u2 in rows:
+            dialogs.append(u2 if u1 == username else u1)
+        return dialogs
 
 
-def send_private_message(sender: str, recipient: str, text: str) -> int:
-    """Отправить сообщение. Возвращает ID сообщения."""
+def send_private_message(sender, receiver, text):
     with conn_mess() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """INSERT INTO chat_messages (sender_email, receiver_email, message) 
-               VALUES (?, ?, ?)""",
-            (sender, recipient, text)
-        )
+        cursor.execute("""
+            INSERT INTO chat_messages (sender_email, receiver_email, message)
+            VALUES (?, ?, ?)
+        """, (sender, receiver, text))
         conn.commit()
-        return cursor.lastrowid
-def get_message_time(message_id: int) -> str:
-    """Получить время сообщения по ID"""
-    with conn_mess() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT strftime('%H:%M', timestamp) FROM chat_messages WHERE id = ?",
-            (message_id,)
-        )
-        row = cursor.fetchone()
-        return row[0] if row else ""
 
 def get_chat_history(user1, user2):
     with conn_mess() as conn:
@@ -196,47 +172,28 @@ def get_chat_history(user1, user2):
                 id, 
                 sender_email, 
                 message, 
-                strftime('%H:%M', timestamp) as timestamp,
-                timestamp as iso_time
+                timestamp,
+                strftime('%Y-%m-%dT%H:%M:%S', timestamp) as iso_time
             FROM chat_messages
             WHERE (sender_email = ? AND receiver_email = ?)
                OR (sender_email = ? AND receiver_email = ?)
             ORDER BY timestamp ASC, id ASC
         """, (user1, user2, user2, user1))
-        return cursor.fetchall()
-
-
-def get_chat_history_after(user: str, recipient: str, after_id: int = 0):
-    """Получить сообщения после указанного ID."""
-    with conn_mess() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT 
-                id, 
-                sender_email, 
-                message, 
-                strftime('%H:%M', timestamp) as timestamp
-            FROM chat_messages
-            WHERE ((sender_email = ? AND receiver_email = ?) 
-                   OR (sender_email = ? AND receiver_email = ?))
-              AND id > ?
-            ORDER BY id ASC
-        """, (user, recipient, recipient, user, after_id))
-        return cursor.fetchall()
+        return cursor.fetchall()   # теперь возвращает: (id, sender, message, timestamp, iso_time)
 
 
 def delete_dialog(user1, user2):
     with conn_mess() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            DELETE FROM chats
+            DELETE FROM dialogs
             WHERE (user1 = ? AND user2 = ?) OR (user1 = ? AND user2 = ?)
         """, (user1, user2, user2, user1))
 
         cursor.execute("""
-            DELETE FROM messages
-            WHERE (sender = ? AND recipient = ?)
-               OR (sender = ? AND recipient = ?)
+            DELETE FROM chat_messages
+            WHERE (sender_email = ? AND receiver_email = ?)
+               OR (sender_email = ? AND receiver_email = ?)
         """, (user1, user2, user2, user1))
         conn.commit()
 
@@ -254,14 +211,11 @@ def delete_message(mess_id, user):
 def chat_exists(user1, user2):
     with conn_mess() as conn:
         cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                SELECT 1 FROM chats
-                WHERE (user1 = ? AND user2 = ?) OR (user1 = ? AND user2 = ?)
-            """, (user1, user2, user2, user1))
-            return cursor.fetchone() is not None
-        except sqlite3.OperationalError:
-            return False
+        cursor.execute("""
+            SELECT 1 FROM dialogs
+            WHERE (user1 = ? AND user2 = ?) OR (user1 = ? AND user2 = ?)
+        """, (user1, user2, user2, user1))
+        return cursor.fetchone() is not None
 
 
 def edit_message(message_id, user, new_text):
