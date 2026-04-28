@@ -26,16 +26,7 @@
         </div>
     </div>
 
-    <div class="card">
-        <h3 style="margin-top:0;">Загрузить аватар</h3>
-        <form action="/upload_avatar" method="post" enctype="multipart/form-data">
-            <input type="file" name="file" accept="image/*" required>
-            <div style="margin-top:10px;">
-                <button type="submit">Сохранить аватар</button>
-            </div>
-        </form>
-    </div>
-
+ 
     <div class="card">
         <h3 style="margin-top:0;">Загрузить фото</h3>
         <form action="/upload_photo" method="post" enctype="multipart/form-data">
@@ -47,23 +38,31 @@
     </div>
 
     <div class="card">
-        <h3 style="margin-top:0;">Твои фотографии</h3>
-        <div class="gallery">
-            {% if photos %}
-                {% for photo in photos %}
-                    <div class="photo">
-                        <img src="{{ photo }}" alt="Фото пользователя">
-                        <form action="/delete_photo" method="post">
-                            <input type="hidden" name="photo" value="{{ photo }}">
-                            <button type="submit" class="danger">Удалить</button>
-                        </form>
+    <h3>Твои фотографии</h3>
+    <div class="gallery">
+        {% if photos %}
+            {% for photo in photos %}
+                <div class="photo">
+                    <img src="{{ photo }}" alt="Фото">
+                    <div class="photo-menu">
+                        <div class="menu-content">
+                            <form action="/set_as_avatar" method="post">
+                                <input type="hidden" name="photo" value="{{ photo }}">
+                                <button type="submit">Установить как аватар</button>
+                            </form>
+                            <form action="/delete_photo" method="post">
+                                <input type="hidden" name="photo" value="{{ photo }}">
+                                <button type="submit" class="danger">Удалить</button>
+                            </form>
+                        </div>
                     </div>
-                {% endfor %}
-            {% else %}
-                <p>У тебя пока нет загруженных фото.</p>
-            {% endif %}
-        </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p>У тебя пока нет загруженных фото.</p>
+        {% endif %}
     </div>
+</div>
 </div>
 </body>
 </html>

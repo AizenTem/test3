@@ -164,18 +164,22 @@ def send_private_message(sender, receiver, text):
         """, (sender, receiver, text))
         conn.commit()
 
-
 def get_chat_history(user1, user2):
     with conn_mess() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, sender_email, message, timestamp
+            SELECT 
+                id, 
+                sender_email, 
+                message, 
+                timestamp,
+                strftime('%Y-%m-%dT%H:%M:%S', timestamp) as iso_time
             FROM chat_messages
             WHERE (sender_email = ? AND receiver_email = ?)
                OR (sender_email = ? AND receiver_email = ?)
             ORDER BY timestamp ASC, id ASC
         """, (user1, user2, user2, user1))
-        return cursor.fetchall()
+        return cursor.fetchall()   # теперь возвращает: (id, sender, message, timestamp, iso_time)
 
 
 def delete_dialog(user1, user2):
