@@ -64,9 +64,10 @@
                 {% endif %}
             </header>
 
-            <div class="chat-messages" id="chat-box">
+            <div class="chat-messages" id="chat-box"
+                 data-last-id="{{ history[-1].id if history else 0 }}">
                 {% for msg in history %}
-                    <div class="msg {% if msg.sender == user %}sent{% else %}received{% endif %}">
+                    <div class="msg {% if msg.sender == user %}sent{% else %}received{% endif %}" data-msg-id="{{ msg.id }}">
                         <div class="msg-avatar">
                             {% if msg.avatar %}
                                 <img src="{{ msg.avatar }}">
@@ -79,19 +80,17 @@
                             <div class="msg-content">
                                 <span class="text">{{ msg.text }}</span>
 
+                                {# Троеточие ТОЛЬКО в своих сообщениях #}
+                                {% if msg.sender == user %}
                                 <div class="msg-dropdown">
                                     <button type="button" class="msg-menu-btn">⋮</button>
-
                                     <div class="msg-dropdown-content">
-                                        {% if msg.sender == user %}
                                         <a href="#" class="edit-msg-btn"
                                            data-id="{{ msg.id }}"
                                            data-text="{{ msg.text }}"
                                            data-recipient="{{ recipient }}">
                                             Изменить
                                         </a>
-                                        {% endif %}
-
                                         <form action="/delete_message" method="post" class="delete-message-form">
                                             <input type="hidden" name="message_id" value="{{ msg.id }}">
                                             <input type="hidden" name="recipient" value="{{ recipient }}">
@@ -99,6 +98,7 @@
                                         </form>
                                     </div>
                                 </div>
+                                {% endif %}
                             </div>
 
                             <div class="time">{{ msg.timestamp }}</div>
@@ -115,29 +115,98 @@
                 <button id="send-btn" type="button">Отправить</button>
             </div>
             {% endif %}
-
         </main>
     </div>
 </div>
 
 <script>
-// Закрытие выпадающих меню при клике вне
-document.addEventListener('click', function(e) {
-    if (!e.target.closest('.msg-dropdown')) {
-        document.querySelectorAll('.msg-dropdown-content.show').forEach(function(menu) {
-            menu.classList.remove('show');
-        });
-    }
-});
-
 (function() {
+    let pollInterval = null;
+    let sending = false;
 
     function scrollDown() {
         var box = document.getElementById("chat-box");
         if (box) box.scrollTop = box.scrollHeight;
     }
 
+    function startPolling() {
+        stopPolling();
+        var box = document.getElementById("chat-box");
+        var recipientEl = document.getElementById("recipient");
+        if (!box || !recipientEl) return;
+
+        pollInterval = setInterval(async function() {
+            var lastId = parseInt(box.getAttribute("data-last-id")) || 0;
+            var recipient = recipientEl.value;
+            try {
+                var res = await fetch("/get_new_messages?recipient=" + encodeURIComponent(recipient) + "&after_id=" + lastId);
+                if (!res.ok) return;
+                var newMsgs = await res.json();
+                if (!newMsgs.length) return;
+
+                newMsgs.forEach(function(msg) {
+                    var div = document.createElement("div");
+                    div.className = "msg " + (msg.sender === "{{ user }}" ? "sent" : "received");
+                    div.setAttribute("data-msg-id", msg.id);
+
+                    var dropdownHTML = "";
+                    if (msg.sender === "{{ user }}") {
+                        dropdownHTML = `
+                            <div class="msg-dropdown">
+                                <button type="button" class="msg-menu-btn">⋮</button>
+                                <div class="msg-dropdown-content">
+                                    <a href="#" class="edit-msg-btn"
+                                       data-id="${msg.id}"
+                                       data-text="${escapeHtml(msg.text)}"
+                                       data-recipient="${recipient}">Изменить</a>
+                                    <form action="/delete_message" method="post" class="delete-message-form">
+                                        <input type="hidden" name="message_id" value="${msg.id}">
+                                        <input type="hidden" name="recipient" value="${recipient}">
+                                        <button type="submit">Удалить</button>
+                                    </form>
+                                </div>
+                            </div>`;
+                    }
+
+                    div.innerHTML = `
+                        <div class="msg-avatar">
+                            ${msg.avatar ? '<img src="' + msg.avatar + '">' : msg.sender[0]}
+                        </div>
+                        <div class="msg-body">
+                            <div class="msg-content">
+                                <span class="text">${escapeHtml(msg.text)}</span>
+                                ${dropdownHTML}
+                            </div>
+                            <div class="time">${msg.timestamp}</div>
+                        </div>
+                    `;
+                    box.appendChild(div);
+                });
+
+                var maxId = Math.max(...newMsgs.map(m => m.id));
+                box.setAttribute("data-last-id", maxId);
+                if (box.scrollTop + box.clientHeight >= box.scrollHeight - 20) {
+                    scrollDown();
+                }
+            } catch (e) {}
+        }, 3000);
+    }
+
+    function stopPolling() {
+        if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+        }
+    }
+
+    function escapeHtml(text) {
+        var div = document.createElement("div");
+        div.appendChild(document.createTextNode(text));
+        return div.innerHTML;
+    }
+
     async function loadChat(recipient) {
+        stopPolling();
         var res = await fetch('/message?recipient=' + encodeURIComponent(recipient), {
             headers: { "X-Partial": "1" }
         });
@@ -147,27 +216,29 @@ document.addEventListener('click', function(e) {
         var newChatArea = doc.querySelector(".chat-area");
         if (!newChatArea) return;
 
-        // Обновляем заголовок
         var newHeader = newChatArea.querySelector(".chat-header");
         var currentHeader = document.querySelector(".chat-header");
         if (newHeader && currentHeader) {
             currentHeader.innerHTML = newHeader.innerHTML;
         }
 
-        // Обновляем только сообщения
         var newMessages = newChatArea.querySelector(".chat-messages");
         var chatBox = document.getElementById("chat-box");
         if (newMessages && chatBox) {
             chatBox.innerHTML = newMessages.innerHTML;
+            var lastMsg = newMessages.querySelector(".msg:last-child");
+            if (lastMsg) {
+                chatBox.setAttribute("data-last-id", lastMsg.getAttribute("data-msg-id") || "0");
+            } else {
+                chatBox.setAttribute("data-last-id", "0");
+            }
         }
 
-        // Обновляем скрытое поле recipient
         var recipientInput = document.getElementById("recipient");
         if (recipientInput) {
             recipientInput.value = recipient;
         }
 
-        // Показываем поле ввода
         var inputArea = document.getElementById("input-area");
         if (inputArea) {
             inputArea.style.display = "flex";
@@ -182,7 +253,6 @@ document.addEventListener('click', function(e) {
             }
         }
 
-        // Подсветка активного контакта
         document.querySelectorAll(".contact-item").forEach(function(item) {
             item.classList.remove("active");
             if (item.dataset.user === recipient) {
@@ -192,39 +262,48 @@ document.addEventListener('click', function(e) {
 
         attachHandlers();
         scrollDown();
+        startPolling();
     }
 
     async function sendMessage() {
+        if (sending) return;
         var inputEl = document.getElementById("msg-input");
+        var sendBtn = document.getElementById("send-btn");
         var recipientEl = document.getElementById("recipient");
 
         if (!inputEl || !recipientEl) return;
-
         var text = inputEl.value.trim();
         var recipient = recipientEl.value;
-
         if (!text) return;
+
+        sending = true;
+        inputEl.disabled = true;
+        if (sendBtn) sendBtn.disabled = true;
 
         var form = new URLSearchParams();
         form.append("text", text);
         form.append("recipient", recipient);
 
-        var res = await fetch("/send_message", {
-            method: "POST",
-            headers: {"Content-Type": "application/x-www-form-urlencoded"},
-            body: form
-        });
-
-        if (res.ok) {
-            inputEl.value = "";
-            inputEl.focus();
-            await loadChat(recipient);
+        try {
+            var res = await fetch("/send_message", {
+                method: "POST",
+                headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                body: form
+            });
+            if (res.ok) {
+                inputEl.value = "";
+                inputEl.focus();
+                await loadChat(recipient);
+            }
+        } finally {
+            sending = false;
+            inputEl.disabled = false;
+            if (sendBtn) sendBtn.disabled = false;
         }
     }
 
     async function deleteMessage(messageId, recipient) {
         if (!confirm("Удалить сообщение?")) return;
-
         var form = new URLSearchParams();
         form.append("message_id", messageId);
         form.append("recipient", recipient);
@@ -234,10 +313,7 @@ document.addEventListener('click', function(e) {
             headers: {"Content-Type": "application/x-www-form-urlencoded"},
             body: form
         });
-
-        if (res.ok) {
-            await loadChat(recipient);
-        }
+        if (res.ok) await loadChat(recipient);
     }
 
     async function editMessage(messageId, oldText, recipient) {
@@ -254,15 +330,11 @@ document.addEventListener('click', function(e) {
             headers: {"Content-Type": "application/x-www-form-urlencoded"},
             body: form
         });
-
-        if (res.ok) {
-            await loadChat(recipient);
-        }
+        if (res.ok) await loadChat(recipient);
     }
 
     async function deleteChat(recipient) {
         if (!confirm("Удалить чат с " + recipient + "?")) return;
-
         var form = new URLSearchParams();
         form.append("recipient", recipient);
 
@@ -271,18 +343,15 @@ document.addEventListener('click', function(e) {
             headers: {"Content-Type": "application/x-www-form-urlencoded"},
             body: form
         });
-
         if (res.ok) {
+            stopPolling();
             window.location.href = "/message";
         }
     }
 
     function attachHandlers() {
-
-        // SEND BUTTON
         var newBtn = document.getElementById("send-btn");
         var newInput = document.getElementById("msg-input");
-
         if (newBtn && newInput) {
             newBtn.onclick = sendMessage;
             newInput.onkeydown = function(e) {
@@ -293,7 +362,6 @@ document.addEventListener('click', function(e) {
             };
         }
 
-        // CONTACT SWITCH
         document.querySelectorAll(".contact-item").forEach(function(el) {
             el.onclick = async function(e) {
                 e.preventDefault();
@@ -301,13 +369,12 @@ document.addEventListener('click', function(e) {
             };
         });
 
-        // MENU TOGGLE
+        // Обработка выпадающего меню (⋮) – только для своих сообщений
         document.querySelectorAll(".msg-menu-btn").forEach(function(btn) {
             btn.onclick = function(e) {
                 e.stopPropagation();
                 var menu = btn.nextElementSibling;
                 if (menu) {
-                    // Закрываем все остальные меню
                     document.querySelectorAll('.msg-dropdown-content.show').forEach(function(m) {
                         if (m !== menu) m.classList.remove('show');
                     });
@@ -316,7 +383,16 @@ document.addEventListener('click', function(e) {
             };
         });
 
-        // EDIT BUTTON
+        // Закрытие меню при клике вне
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.msg-dropdown')) {
+                document.querySelectorAll('.msg-dropdown-content.show').forEach(function(menu) {
+                    menu.classList.remove('show');
+                });
+            }
+        });
+
+        // Кнопки "Изменить" и "Удалить" в выпадающем меню
         document.querySelectorAll(".edit-msg-btn").forEach(function(btn) {
             btn.onclick = async function(e) {
                 e.preventDefault();
@@ -327,7 +403,6 @@ document.addEventListener('click', function(e) {
             };
         });
 
-        // DELETE MESSAGE FORM
         document.querySelectorAll(".delete-message-form").forEach(function(form) {
             form.onsubmit = async function(e) {
                 e.preventDefault();
@@ -337,7 +412,6 @@ document.addEventListener('click', function(e) {
             };
         });
 
-        // DELETE CHAT FORM
         var deleteChatForm = document.querySelector(".delete-chat-form");
         if (deleteChatForm) {
             deleteChatForm.onsubmit = async function(e) {
@@ -348,10 +422,9 @@ document.addEventListener('click', function(e) {
         }
     }
 
-    // INIT
     attachHandlers();
     scrollDown();
-
+    startPolling();
 })();
 </script>
 

@@ -1,8 +1,9 @@
 import os
+import re
 import shutil
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -24,6 +25,12 @@ app.mount("/users_images", StaticFiles(directory=upload_dir), name="users_image"
 
 data.create_tables()
 data.create_tables_messenger()
+
+
+# Разрешённые символы для пароля: латиница, кириллица, цифры и спецсимволы из списка
+PASSWORD_PATTERN = re.compile(
+    r'^[A-Za-zА-Яа-я0-9=,._!@#$%^&*<>()\-+/`"\'{\[}\]\\]+$'
+)
 
 
 def current_user(request: Request):
@@ -57,6 +64,13 @@ def create_user(request: Request, name: str = Form(...), password: str = Form(..
         return RedirectResponse(url="/register?error=Имя или пароль не может быть пустым", status_code=303)
     if current_user(request):
         return RedirectResponse(url="/success", status_code=303)
+
+    # 🔒 ПРОВЕРКА ПАРОЛЯ НА ДОПУСТИМЫЕ СИМВОЛЫ (пункт 1)
+    if not PASSWORD_PATTERN.match(password):
+        return RedirectResponse(
+            url="/register?error=Пароль содержит недопустимые символы. Разрешены: латиница, кириллица, цифры и =,._!@#$%^&*<>()-+/*`\"'{[}]",
+            status_code=303,
+        )
 
     if data.check_users(name):
         return RedirectResponse(url="/register?error=Пользователь уже существует", status_code=303)
@@ -157,6 +171,13 @@ def upload(request: Request, file: UploadFile = File(...)):
     safe_file = os.path.basename(file.filename)
     file_path = os.path.join(user_folder, safe_file)
 
+    # 🖼️ ЗАМЕНА ФОТОГРАФИИ С ТЕМ ЖЕ ИМЕНЕМ (пункт 4)
+    # Удаляем старую запись из БД, если она существует
+    try:
+        data.delete_photo(file_path)
+    except Exception:
+        pass
+
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
@@ -187,8 +208,7 @@ def logout(request: Request):
     return RedirectResponse(url="/", status_code=303)
 
 
-from fastapi import Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+# ------------------- Мессенджер -------------------
 
 @app.get("/message", response_class=HTMLResponse)
 def messages_page(request: Request, recipient: str = "", reci: str = ""):
@@ -228,8 +248,31 @@ def messages_page(request: Request, recipient: str = "", reci: str = ""):
     template = templates.TemplateResponse("message.html", context)
     if request.headers.get("X-Partial") == "1":
         return template
-
     return template
+
+
+# 📨 ПОЛУЧЕНИЕ НОВЫХ СООБЩЕНИЙ (для автоматического обновления, пункт 3)
+@app.get("/get_new_messages")
+def get_new_messages(request: Request, recipient: str, after_id: int = 0):
+    me = current_user(request)
+    if not me:
+        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+    # Получаем все сообщения, id которых больше after_id, между мной и получателем
+    rows = data.get_chat_history(me, recipient)  # предполагаем, что функция возвращает все сообщения в порядке id
+    new_msgs = []
+    for row in rows:
+        msg_id = row[0]
+        if msg_id > after_id:
+            new_msgs.append({
+                "id": msg_id,
+                "sender": row[1],
+                "text": row[2],
+                "timestamp": row[3],
+                "avatar": data.get_user_avatar(row[1]),
+            })
+    return JSONResponse(content=new_msgs)
+
+
 @app.post("/start_chat")
 def start_chat(request: Request, contact_name: str = Form(...)):
     me = current_user(request)
@@ -241,13 +284,13 @@ def start_chat(request: Request, contact_name: str = Form(...)):
         return HTMLResponse(content="Введите имя пользователя!", status_code=400)
 
     if contact_name == me:
-        return HTMLResponse(content="Нельзя создать чат с самим собой!", status_code=400)
+        return RedirectResponse(url="/message?error=Нельзя+создать+чат+с+самим+собой", status_code=303)
 
     if data.check_users(contact_name):
         data.create_chats(me, contact_name)
         return RedirectResponse(url=f"/message?recipient={contact_name}", status_code=303)
 
-    return HTMLResponse(content=f"Пользователь {contact_name} не найден", status_code=404)
+    return RedirectResponse(url="/message?error=Пользователь+не+найден", status_code=303)
 
 
 @app.post("/send_message")
