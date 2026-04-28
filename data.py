@@ -136,16 +136,17 @@ def create_chats(user1: str, user2: str):
     """Создать запись о чате между пользователями."""
     with conn_mess() as conn:
         cursor = conn.cursor()
-        try:
+        # Проверяем, существует ли уже чат
+        cursor.execute(
+            "SELECT 1 FROM dialogs WHERE (user1 = ? AND user2 = ?) OR (user1 = ? AND user2 = ?)",
+            (user1, user2, user2, user1)
+        )
+        if not cursor.fetchone():
             cursor.execute(
-                "INSERT OR IGNORE INTO chats (user1, user2) VALUES (?, ?)",
-                (min(user1, user2), max(user1, user2))
+                "INSERT INTO dialogs (user1, user2) VALUES (?, ?)",
+                (user1, user2)
             )
             conn.commit()
-        except sqlite3.OperationalError:
-            # Если таблица chats ещё не создана
-            pass
-
 
 def get_dialog(username):
     with conn_mess() as conn:
@@ -170,12 +171,22 @@ def send_private_message(sender: str, recipient: str, text: str) -> int:
     with conn_mess() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO messages (sender, recipient, text) VALUES (?, ?, ?)",
+            """INSERT INTO chat_messages (sender_email, receiver_email, message) 
+               VALUES (?, ?, ?)""",
             (sender, recipient, text)
         )
         conn.commit()
         return cursor.lastrowid
-
+def get_message_time(message_id: int) -> str:
+    """Получить время сообщения по ID"""
+    with conn_mess() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT strftime('%H:%M', timestamp) FROM chat_messages WHERE id = ?",
+            (message_id,)
+        )
+        row = cursor.fetchone()
+        return row[0] if row else ""
 
 def get_chat_history(user1, user2):
     with conn_mess() as conn:
@@ -183,13 +194,13 @@ def get_chat_history(user1, user2):
         cursor.execute("""
             SELECT 
                 id, 
-                sender, 
-                text, 
+                sender_email, 
+                message, 
                 strftime('%H:%M', timestamp) as timestamp,
                 timestamp as iso_time
-            FROM messages
-            WHERE (sender = ? AND recipient = ?)
-               OR (sender = ? AND recipient = ?)
+            FROM chat_messages
+            WHERE (sender_email = ? AND receiver_email = ?)
+               OR (sender_email = ? AND receiver_email = ?)
             ORDER BY timestamp ASC, id ASC
         """, (user1, user2, user2, user1))
         return cursor.fetchall()
@@ -199,16 +210,18 @@ def get_chat_history_after(user: str, recipient: str, after_id: int = 0):
     """Получить сообщения после указанного ID."""
     with conn_mess() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """SELECT id, sender, text, 
-                      strftime('%H:%M', timestamp) as timestamp,
-                      timestamp as iso_time
-               FROM messages 
-               WHERE ((sender = ? AND recipient = ?) OR (sender = ? AND recipient = ?))
-               AND id > ?
-               ORDER BY id ASC""",
-            (user, recipient, recipient, user, after_id)
-        )
+        cursor.execute("""
+            SELECT 
+                id, 
+                sender_email, 
+                message, 
+                strftime('%H:%M', timestamp) as timestamp
+            FROM chat_messages
+            WHERE ((sender_email = ? AND receiver_email = ?) 
+                   OR (sender_email = ? AND receiver_email = ?))
+              AND id > ?
+            ORDER BY id ASC
+        """, (user, recipient, recipient, user, after_id))
         return cursor.fetchall()
 
 
@@ -232,7 +245,7 @@ def delete_message(mess_id, user):
     with conn_mess() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "DELETE FROM messages WHERE id = ? AND sender = ?",
+            "DELETE FROM chat_messages WHERE id = ? AND sender_email = ?",
             (mess_id, user)
         )
         conn.commit()
@@ -255,8 +268,8 @@ def edit_message(message_id, user, new_text):
     with conn_mess() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            UPDATE messages
-            SET text = ?, edited = 1
-            WHERE id = ? AND sender = ?
+            UPDATE chat_messages
+            SET message = ?
+            WHERE id = ? AND sender_email = ?
         """, (new_text, message_id, user))
         conn.commit()
