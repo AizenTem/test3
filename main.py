@@ -187,14 +187,15 @@ def logout(request: Request):
     return RedirectResponse(url="/", status_code=303)
 
 
+from fastapi import Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+
 @app.get("/message", response_class=HTMLResponse)
 def messages_page(request: Request, recipient: str = "", reci: str = ""):
     me = current_user(request)
     if not me:
         return RedirectResponse(url="/", status_code=303)
-
     recipient = (recipient or reci or "").strip()
-
     history = []
     if recipient:
         rows = data.get_chat_history(me, recipient)
@@ -208,7 +209,6 @@ def messages_page(request: Request, recipient: str = "", reci: str = ""):
             }
             for row in rows
         ]
-
     dialogs = [
         {
             "name": d,
@@ -216,21 +216,20 @@ def messages_page(request: Request, recipient: str = "", reci: str = ""):
         }
         for d in data.get_dialog(me)
     ]
+    context = {
+        "request": request,
+        "user": me,
+        "recipient": recipient,
+        "history": history,
+        "dialogs": dialogs,
+        "my_avatar": data.get_user_avatar(me),
+        "recipient_avatar": data.get_user_avatar(recipient) if recipient else None,
+    }
+    template = templates.TemplateResponse("message.html", context)
+    if request.headers.get("X-Partial") == "1":
+        return template
 
-    return templates.TemplateResponse(
-        "message.html",
-        {
-            "request": request,
-            "user": me,
-            "recipient": recipient,
-            "history": history,
-            "dialogs": dialogs,
-            "my_avatar": data.get_user_avatar(me),
-            "recipient_avatar": data.get_user_avatar(recipient) if recipient else None,
-        },
-    )
-
-
+    return template
 @app.post("/start_chat")
 def start_chat(request: Request, contact_name: str = Form(...)):
     me = current_user(request)

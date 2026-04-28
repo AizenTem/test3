@@ -1,7 +1,3 @@
-/* static/style.css
-   Универсальные стили под твои шаблоны:
-   index / login / register / profile / chat
-*/
 
 *,
 *::before,
@@ -128,9 +124,6 @@ input[type="file"]::file-selector-button {
     cursor: pointer;
 }
 
-/* =========================================================
-   Главная страница
-   ========================================================= */
 
 body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) {
     display: flex;
@@ -215,9 +208,6 @@ body:has(> a[href="/register"]):has(> a[href="/login"]):not(:has(.page)) > a[hre
     box-shadow: 0 10px 22px rgba(103, 234, 118, 0.18);
 }
 
-/* =========================================================
-   Вход / Регистрация
-   ========================================================= */
 
 body:has(> form[action="/logins"]),
 body:has(> form[action="/add_user"]) {
@@ -317,10 +307,6 @@ body:has(> form[action="/add_user"]) > a[href="/login"]:hover::before {
     transform: translateY(-2px);
     box-shadow: 0 10px 22px rgba(103, 234, 118, 0.18);
 }
-
-/* =========================================================
-   Профиль
-   ========================================================= */
 
 body:has(.page):has(.top):has(.card) {
     background:
@@ -450,9 +436,6 @@ body:has(.page):has(.top):has(.card) {
     width: 100%;
 }
 
-/* =========================================================
-   Чат
-   ========================================================= */
 
 body:has(.chat-wrapper) .page {
     width: 100%;
@@ -561,8 +544,8 @@ body:has(.chat-wrapper) .page {
     background:
         radial-gradient(circle at center, rgba(124, 134, 255, 0.06), transparent 35%),
         var(--bg);
-    height: 100%;               /* Добавлено */
-    overflow: hidden;           /* Добавлено */
+    height: 100%;             
+    overflow: hidden;           
 }
 
 .chat-header {
@@ -601,7 +584,7 @@ body:has(.chat-wrapper) .page {
     display: flex;
     flex-direction: column;
     gap: 14px;
-    min-height: 0;              /* КРИТИЧНО: позволяет flex-элементу сжиматься */
+    min-height: 0;         
 }
 
 .msg {
@@ -729,7 +712,7 @@ body:has(.chat-wrapper) .page {
     padding: 18px;
     border-top: 1px solid var(--line);
     background: var(--panel);
-    flex-shrink: 0;             /* Гарантирует, что поле ввода никогда не сожмётся */
+    flex-shrink: 0;    
 }
 
 .input-area input[type="text"] {
@@ -747,10 +730,6 @@ body:has(.chat-wrapper) .page {
     color: #061009;
     box-shadow: 0 10px 22px rgba(103, 234, 118, 0.18);
 }
-
-/* =========================================================
-   Адаптив
-   ========================================================= */
 
 @media (max-width: 850px) {
     .top-bar {
@@ -829,10 +808,33 @@ body:has(.chat-wrapper) .page {
         flex-direction: column;
     }
 }
+.logo {
+    position: fixed;
+    top: 25px;
+    left: 25px;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+    transition: 0.3s ease;
+    
+}
 
-/* =========================================================
-   Анимация
-   ========================================================= */
+.logo-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 50% !important; 
+    object-fit: cover;
+    background: transparent !important;
+}
+.log {
+    position: fixed;
+    top: 25px;
+    left: 0px;
+    z-index: 1000;
+}
+
 
 @keyframes fadeInUp {
     from {
