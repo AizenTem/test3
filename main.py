@@ -1,17 +1,13 @@
 import os
 import re
 import shutil
-import asyncio
-from typing import Dict, List
-from fastapi import WebSocket, WebSocketDisconnect, FastAPI, File, Form, Request, UploadFile, HTTPException, BackgroundTasks
+from fastapi import FastAPI, File, Form, Request, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 import data
 from rich.traceback import install
-
-waiting_requests = {}
 
 install(show_locals=True)
 
@@ -34,36 +30,7 @@ PASSWORD_PATTERN = re.compile(
 
 def current_user(request: Request):
     return request.session.get("user")
-async def wait_for_new_messages(recipient: str, after_id: int, timeout: int = 30):
-    """Ожидает новые сообщения для получателя"""
-    queue = asyncio.Queue()
-    
-    # Добавляем очередь в ожидающие запросы
-    if recipient not in waiting_requests:
-        waiting_requests[recipient] = []
-    waiting_requests[recipient].append(queue)
-    
-    try:
-        # Ожидаем новое сообщение или таймаут
-        result = await asyncio.wait_for(queue.get(), timeout=timeout)
-        return result
-    except asyncio.TimeoutError:
-        return None
-    finally:
-        # Удаляем очередь из ожидающих запросов
-        if recipient in waiting_requests:
-            waiting_requests[recipient].remove(queue)
-            if not waiting_requests[recipient]:
-                del waiting_requests[recipient]
 
-def notify_new_message(recipient: str, message_data: dict):
-    """Уведомляет все ожидающие запросы о новом сообщении"""
-    if recipient in waiting_requests:
-        for queue in waiting_requests[recipient]:
-            try:
-                queue.put_nowait(message_data)
-            except:
-                pass
 # ====================== Аутентификация ======================
 @app.get("/", response_class=HTMLResponse)
 def read_form(request: Request):
@@ -311,22 +278,6 @@ def messages_page(request: Request, recipient: str = "", reci: str = ""):
         return template
     return template
 
-@app.websocket("/ws/{username}")
-async def websocket_endpoint(websocket: WebSocket, username: str):
-    me = current_user_from_ws(websocket)  # нужно реализовать
-    if not me or me != username:  # защита — только свой username
-        await websocket.close()
-        return
-
-    await manager.connect(websocket, username)
-    try:
-        while True:
-            # Можно принимать ping/pong или другие сообщения
-            data = await websocket.receive_text()
-            # Пока ничего не делаем — отправка сообщений идёт через HTTP POST
-    except WebSocketDisconnect:
-        manager.disconnect(websocket, username)
-
 # Получение актуального списка диалогов (для реального времени)
 @app.get("/get_dialogs")
 def get_dialogs(request: Request):
@@ -338,30 +289,7 @@ def get_dialogs(request: Request):
         for d in data.get_dialog(me)
     ]
     return JSONResponse(content=dialogs)
-@app.get("/get_new_messages")
-def get_new_messages(request: Request, recipient: str, after_id: int = 0):
-    me = current_user(request)
-    if not me:
-        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
 
-    recipient = recipient.strip()
-    if not recipient or recipient == me:
-        return JSONResponse(content=[])
-
-    # Получаем только новые сообщения
-    rows = data.get_chat_history_after(me, recipient, after_id)  # нужно добавить эту функцию
-
-    messages = [
-        {
-            "id": row[0],
-            "sender": row[1],
-            "text": row[2],
-            "timestamp": row[3],
-            "avatar": data.get_user_avatar(row[1]),
-        }
-        for row in rows
-    ]
-    return JSONResponse(content=messages)
 @app.post("/start_chat")
 def start_chat(request: Request, contact_name: str = Form(...)):
     me = current_user(request)
@@ -379,7 +307,7 @@ def start_chat(request: Request, contact_name: str = Form(...)):
     return RedirectResponse(url="/message?error=Пользователь+не+найден", status_code=303)
 
 @app.post("/send_message")
-async def send_msg(request: Request, text: str = Form(...), recipient: str = Form(...)):
+def send_msg(request: Request, text: str = Form(...), recipient: str = Form(...)):
     me = current_user(request)
     if not me:
         return RedirectResponse(url="/login", status_code=303)
@@ -389,66 +317,10 @@ async def send_msg(request: Request, text: str = Form(...), recipient: str = For
     if not recipient_clean or not text_clean:
         return RedirectResponse(url=f"/message?recipient={recipient_clean}", status_code=303)
 
-    # Сохраняем сообщение
-    message_id = data.send_private_message(me, recipient_clean, text_clean)
+    data.send_private_message(me, recipient_clean, text_clean)
     data.create_chats(me, recipient_clean)
-
-    # Получаем время сообщения
-    msg_time = data.get_message_time(message_id)
-    
-    # Формируем данные для отправки
-    msg_data = {
-        "id": message_id,
-        "sender": me,
-        "text": text_clean,
-        "timestamp": msg_time,
-        "avatar": data.get_user_avatar(me),
-    }
-    
-    # Уведомляем получателя
-    notify_new_message(recipient_clean, msg_data)
-    
-    # Также уведомляем отправителя (если он ожидает)
-    # notify_new_message(me, msg_data)
-
-    # Для обратной совместимости
     return RedirectResponse(url=f"/message?recipient={recipient_clean}", status_code=303)
 
-@app.get("/wait_new_messages")
-async def wait_new_messages(request: Request, recipient: str, after_id: int = 0):
-    """Long polling эндпоинт - ожидает новые сообщения"""
-    me = current_user(request)
-    if not me:
-        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
-    
-    recipient = recipient.strip()
-    if not recipient or recipient == me:
-        return JSONResponse(content=[])
-    
-    # Сначала проверяем, нет ли уже новых сообщений
-    rows = data.get_chat_history_after(me, recipient, after_id)
-    if rows:
-        messages = [
-            {
-                "id": row[0],
-                "sender": row[1],
-                "text": row[2],
-                "timestamp": row[3],
-                "avatar": data.get_user_avatar(row[1]),
-            }
-            for row in rows
-        ]
-        return JSONResponse(content=messages)
-    
-    # Если новых нет, ждём
-    new_msg = await wait_for_new_messages(recipient, after_id)
-    
-    if new_msg:
-        return JSONResponse(content=[new_msg])
-    
-    # Таймаут - возвращаем пустой массив
-    return JSONResponse(content=[])
-    
 @app.post("/edit_message")
 def edit_message(request: Request, message_id: int = Form(...), new_text: str = Form(...), recipient: str = Form(...)):
     me = current_user(request)
@@ -513,3 +385,45 @@ def user_profile(request: Request, username: str):
             "is_own_profile": me == username
         },
     )
+@app.get("/get_new_messages")
+def get_new_messages(request: Request, recipient: str = "", after_id: int = 0):
+    me = current_user(request)
+    if not me:
+        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+
+    recipient = recipient.strip()
+    if not recipient or recipient == me:
+        return JSONResponse(content=[])
+
+    with data.conn_mess() as conn:  # или data.conn_mess()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                id, 
+                sender_email, 
+                message, 
+                timestamp,
+                strftime('%Y-%m-%dT%H:%M:%S', timestamp) as iso_time
+            FROM chat_messages
+            WHERE id > ?
+              AND (
+                    (sender_email = ? AND receiver_email = ?)
+                 OR (sender_email = ? AND receiver_email = ?)
+              )
+            ORDER BY timestamp ASC, id ASC
+        """, (after_id, me, recipient, recipient, me))
+
+        rows = cursor.fetchall()
+
+    messages = []
+    for row in rows:
+        msg_id, sender, text, timestamp, iso_time = row
+        messages.append({
+            "id": msg_id,
+            "sender": sender,
+            "text": text,
+            "timestamp": iso_time,        # ISO формат для JS
+            "avatar": data.get_user_avatar(sender)
+        })
+
+    return JSONResponse(content=messages)
