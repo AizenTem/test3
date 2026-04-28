@@ -68,6 +68,25 @@ def current_user(request: Request):
     return request.session.get("user")
 
 # ====================== Аутентификация ======================
+
+def current_user_from_ws(websocket: WebSocket):
+    """Получение пользователя из cookie WebSocket соединения"""
+    # В FastAPI WebSocket нет прямого доступа к session middleware
+    # Используем query параметр при подключении
+    return None  # Будем передавать username в URL
+@app.websocket("/ws/{username}")
+async def websocket_endpoint(websocket: WebSocket, username: str):
+    # Принимаем соединение
+    await manager.connect(websocket, username)
+    try:
+        while True:
+            # Ждем сообщения от клиента (например, ping для поддержания соединения)
+            data = await websocket.receive_text()
+            # Можно обрабатывать дополнительные команды
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, username)
 @app.get("/", response_class=HTMLResponse)
 def read_form(request: Request):
     if current_user(request):
